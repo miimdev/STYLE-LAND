@@ -28,9 +28,23 @@ test('صفحات، جهت فارسی و مسیرهای محلی معتبر دا�
     assert.match(html, /<html lang="fa" dir="rtl">/);
     assert.match(html, /<main id="main-content"/);
     assert.match(html, /name="description"/);
-    for (const [,path] of html.matchAll(/(?:href|src)="((?:css|js|assets)\/[^"?]+)"/g)) await access(new URL(`../${path}`, import.meta.url));
+    for (const [,path] of html.matchAll(/(?:href|src)="((?:css|js|assets|fonts)\/[^"?]+)"/g)) await access(new URL(`../${path}`, import.meta.url));
+    assert.match(html, /href="fonts\/style\.ttf"/);
   }
-  for (const product of products) for (const path of product.localImages) await access(new URL(`../${path}`, import.meta.url));
+  const localPhotos = [
+    ...products.flatMap(product => product.localImages),
+    ...categories.map(category => category.localImage),
+    ...posts.map(post => post.localImage)
+  ];
+  for (const path of new Set(localPhotos)) {
+    await access(new URL(`../${path}`, import.meta.url));
+    await access(new URL(`../${path.replace(/\.jpe?g$/i, '.webp')}`, import.meta.url));
+  }
+  for (const path of ['assets/logo-mark.svg','assets/hero-fashion.webp','assets/editorial/women-campaign.webp','assets/editorial/men-campaign.webp','assets/editorial/accessories-campaign.webp','assets/vendor/supabase-2.118.0.min.js']) await access(new URL(`../${path}`, import.meta.url));
+  const font = await readFile(new URL('../fonts/style.ttf', import.meta.url));
+  assert.equal(font.readUInt32BE(0), 0x00010000, 'style.ttf must be a TrueType font');
+  const css = await readFile(new URL('../css/base.css', import.meta.url), 'utf8');
+  assert.match(css, /url\('\.\.\/fonts\/style\.ttf'\)/);
 });
 
 test('اسکیما برای همه جدول‌های فروشگاه RLS دارد', async () => {

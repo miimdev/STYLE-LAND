@@ -10,6 +10,7 @@ let user = null;
 let state = read('guest');
 let queue = Promise.resolve();
 let generation = 0;
+let pendingLogin = null;
 const key = () => user ? `user:${user.id}` : 'guest';
 
 function changed() {
@@ -92,56 +93,104 @@ export function clearCart() {
   old.forEach(deleteCartItem);
 }
 
-// Merge guest data once after login. User-specific cache is never shared on sign-out.
-export async function setUser(nextUser) {
-  if (nextUser?.id === user?.id) return;
-  const previousUser = user;
-  const guest = previousUser ? empty() : read('guest');
-  generation += 1;
-  user = nextUser || null;
-  state = read(key());
-  changed();
-  if (!user || !getClient() || !isOnline()) return;
-  const currentGeneration = generation;
-  try {
-    const [cartResult, wishResult] = await Promise.all([
-      getClient().from('cart_items').select('product_id,color,size,quantity').eq('user_id', user.id),
-      getClient().from('wishlists').select('product_id').eq('user_id', user.id)
-    ]);
-    if (cartResult.error || wishResult.error) throw cartResult.error || wishResult.error;
-    if (currentGeneration !== generation) return;
-    const remote = cartResult.data.map(row => ({ productId: row.product_id, color: row.color, size: row.size, quantity: row.quantity }));
-    // Cached and remote copies represent the same cart; use max rather than counting twice.
-    for (const item of state.cart) {
-      const match = remote.find(value => itemKey(value) === itemKey(item));
-      if (match) match.quantity = Math.max(match.quantity, item.quantity);
-      else remote.push({ ...item });
-    }
-    // A failed remote write leaves the guest snapshot in place. Only merge the
-    // delta on a retry, so a reconnect never counts the same guest item twice.
-    const previousGuest = state.pendingGuest || empty();
-    for (const item of guest.cart) {
-      const previouslyMerged = previousGuest.cart.find(value => itemKey(value) === itemKey(item))?.quantity || 0;
-      const delta = Math.max(0, item.quantity - previouslyMerged);
-      const match = remote.find(value => itemKey(value) === itemKey(item));
-      if (match) match.quantity = Math.min(10, match.quantity + delta);
-      else if (delta) remote.push({ ...item, quantity: delta });
-    }
-    state.cart = remote.filter(item => getProduct(item.productId));
-    state.wishlist = [...new Set([...wishResult.data.map(row => Number(row.product_id)), ...state.wishlist, ...guest.wishlist].map(Number))].filter(id => getProduct(id));
-    state.pendingGuest = { cart: guest.cart.map(item => ({ ...item })), wishlist: [...guest.wishlist] };
-    if (!state.coupon && guest.coupon) state.coupon = guest.coupon;
+// Merge guest data once after login. Keep the guest state active while remote
+// data is loading so interactions during a slow session restore are not lost.
+export function setUser(nextUser) {
+  if (!nextUser) {
+    if (pendingLogin) { generation += 1; pendingLogin = null; }
+    if (!user) return Promise.resolve();
+    generation += 1;
+    user = null;
+    state = read('guest');
     changed();
-    const owner = user;
-    const writes = [];
-    if (state.cart.length) writes.push(getClient().from('cart_items').upsert(state.cart.map(item => cartRow(item, owner)), { onConflict: 'user_id,product_id,color,size' }));
-    if (state.wishlist.length) writes.push(getClient().from('wishlists').upsert(state.wishlist.map(product_id => ({ user_id: owner.id, product_id })), { onConflict: 'user_id,product_id' }));
-    const results = await Promise.all(writes);
-    if (results.some(result => result.error)) throw results.find(result => result.error).error;
-    if (currentGeneration === generation) { save('guest', empty()); delete state.pendingGuest; changed(); }
-  } catch (error) {
-    console.warn('Styleland merge:', error.message);
-    // Keep guest data for a later retry if the remote merge fails.
-    window.dispatchEvent(new CustomEvent('styleland:error', { detail: 'همگام‌سازی حساب کامل نشد؛ داده‌های مهمان روی دستگاه باقی ماند.' }));
+    return Promise.resolve();
   }
+  if (pendingLogin?.id === nextUser.id) return pendingLogin.promise;
+  if (nextUser.id === user?.id) return Promise.resolve();
+
+  const atGeneration = ++generation;
+  const mergeGuest = !user;
+  const ownerKey = `user:${nextUser.id}`;
+  const mergeLocal = (base, guest) => {
+    const previous = base.pendingGuest || empty();
+    for (const item of guest.cart) {
+      const already = previous.cart?.find(value => itemKey(value) === itemKey(item))?.quantity || 0;
+      const delta = Math.max(0, item.quantity - already);
+      const match = base.cart.find(value => itemKey(value) === itemKey(item));
+      if (match) match.quantity = Math.min(10, match.quantity + delta);
+      else if (delta) base.cart.push({ ...item, quantity: delta });
+    }
+    base.wishlist = [...new Set([...base.wishlist, ...guest.wishlist].map(Number))];
+    if (!base.coupon && guest.coupon) base.coupon = guest.coupon;
+    base.pendingGuest = { cart: guest.cart.map(item => ({ ...item })), wishlist: [...guest.wishlist] };
+    return base;
+  };
+
+  const promise = (async () => {
+    try {
+      if (!getClient() || !isOnline()) throw new Error('OFFLINE');
+      const [cartResult, wishResult] = await Promise.all([
+        getClient().from('cart_items').select('product_id,color,size,quantity').eq('user_id', nextUser.id),
+        getClient().from('wishlists').select('product_id').eq('user_id', nextUser.id)
+      ]);
+      if (cartResult.error || wishResult.error) throw cartResult.error || wishResult.error;
+      if (atGeneration !== generation) return;
+
+      const cached = read(ownerKey);
+      const guest = mergeGuest ? read('guest') : empty();
+      const remote = (cartResult.data || []).map(row => ({ productId: row.product_id, color: row.color, size: row.size, quantity: row.quantity }));
+      // Cached and server copies describe the same account cart, not two carts.
+      for (const item of cached.cart) {
+        const match = remote.find(value => itemKey(value) === itemKey(item));
+        if (match) match.quantity = Math.max(match.quantity, item.quantity);
+        else remote.push({ ...item });
+      }
+      cached.cart = remote;
+      cached.wishlist = [...new Set([...(wishResult.data || []).map(row => Number(row.product_id)), ...cached.wishlist].map(Number))];
+      state = mergeLocal(cached, guest);
+      state.cart = state.cart.filter(item => getProduct(item.productId));
+      state.wishlist = state.wishlist.filter(id => getProduct(id));
+      user = nextUser;
+
+      // Queue the initial merge before later user edits, so an older bulk write
+      // cannot overwrite a more recent quantity or removal.
+      const cartSnapshot = state.cart.map(item => ({ ...item }));
+      const wishSnapshot = [...state.wishlist];
+      const bulk = queue.then(async () => {
+        if (atGeneration !== generation || user?.id !== nextUser.id) return false;
+        const writes = [];
+        if (cartSnapshot.length) writes.push(getClient().from('cart_items').upsert(cartSnapshot.map(item => cartRow(item, nextUser)), { onConflict: 'user_id,product_id,color,size' }));
+        if (wishSnapshot.length) writes.push(getClient().from('wishlists').upsert(wishSnapshot.map(product_id => ({ user_id: nextUser.id, product_id })), { onConflict: 'user_id,product_id' }));
+        const results = await Promise.all(writes);
+        if (results.some(result => result.error)) throw results.find(result => result.error).error;
+        return true;
+      });
+      queue = bulk.catch(error => {
+        if (atGeneration === generation) {
+          console.warn('Styleland merge:', error.message);
+          window.dispatchEvent(new CustomEvent('styleland:error', { detail: 'همگام‌سازی حساب کامل نشد؛ داده‌های مهمان روی دستگاه باقی ماند.' }));
+        }
+        return false;
+      });
+      changed();
+      const saved = await bulk.catch(() => false);
+      if (saved && atGeneration === generation) {
+        if (mergeGuest) save('guest', empty());
+        delete state.pendingGuest;
+        changed();
+      }
+    } catch (error) {
+      if (atGeneration !== generation) return;
+      const guest = mergeGuest ? read('guest') : empty();
+      state = mergeLocal(read(ownerKey), guest);
+      user = nextUser;
+      changed();
+      // Keep the guest snapshot and pendingGuest for a safe retry on next load.
+      console.warn('Styleland merge:', error.message);
+      window.dispatchEvent(new CustomEvent('styleland:error', { detail: 'همگام‌سازی حساب کامل نشد؛ داده‌های مهمان روی دستگاه باقی ماند.' }));
+    }
+  })();
+  pendingLogin = { id: nextUser.id, promise };
+  promise.finally(() => { if (pendingLogin?.promise === promise) pendingLogin = null; });
+  return promise;
 }

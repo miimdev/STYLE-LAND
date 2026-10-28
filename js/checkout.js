@@ -1,4 +1,4 @@
-import { isOnline, placeOrder } from './supabase.js';
+import { getBackendPhase, isOnline, placeOrder } from './supabase.js';
 import * as store from './store.js';
 import { SHIPPING_COSTS, FREE_SHIPPING_THRESHOLD } from './config.js';
 import { breadcrumb, emptyState, fa, price, escapeHTML, latinDigits, toast, icon } from './ui.js';
@@ -13,6 +13,7 @@ let payment = 'online';
 let step = 1;
 let accepted = false;
 let success = null;
+let submitting = false;
 let bound = false;
 
 const rules = {
@@ -67,16 +68,26 @@ function stepTwo() {
     ${option('free','ارسال رایگان',eligible ? 'برای خریدهای بالای ۱٬۶۰۰٬۰۰۰ تومان' : `برای خریدهای بالای ${fa(FREE_SHIPPING_THRESHOLD)} تومان`,0,!eligible)}
     <div class="checkout-card__actions"><button class="btn btn--secondary" type="button" data-checkout-back>مرحله قبل</button><button class="btn btn--primary" type="submit">ادامه و مرور سفارش ${icon('arrow','icon--sm')}</button></div></form>`;
 }
+function connectionNote() {
+  if (getBackendPhase() === 'connecting') return 'در حال بررسی اتصال و حساب شما؛ لطفاً برای ثبت سفارش کمی صبر کنید.';
+  if (!isOnline()) return 'اتصال برقرار نیست؛ سفارش فقط به‌صورت نمایشی روی این دستگاه ثبت می‌شود و به سرور ارسال نمی‌شود.';
+  if (!store.getUser()) return 'برای ثبت سفارش آزمایشی در حساب خود، ابتدا وارد شوید یا ثبت‌نام کنید.';
+  return '';
+}
+function orderButtonLabel() {
+  if (getBackendPhase() === 'connecting') return 'در حال بررسی اتصال';
+  return isOnline() && !store.getUser() ? 'ورود و ثبت سفارش' : isOnline() ? 'ثبت سفارش آزمایشی' : 'ثبت نمایشی آفلاین';
+}
 function stepThree() {
+  const note = connectionNote();
   return `<form data-checkout-form="3"><h2 tabindex="-1" data-step-title>مرور و ثبت سفارش</h2><p class="checkout-card__intro">این فرایند نمایشی است؛ هیچ وجهی دریافت یا کالایی ارسال نمی‌شود.</p>
-    <div class="review-order"><p><span>گیرنده</span><strong>${escapeHTML(customer.fullName)} · ${escapeHTML(customer.phone)}</strong></p><p><span>آدرس</span><strong>${escapeHTML(customer.province)}، ${escapeHTML(customer.city)}، ${escapeHTML(customer.address)}</strong></p><p><span>کد پستی</span><strong>${escapeHTML(customer.postalCode)}</strong></p><p><span>روش ارسال</span><strong>${shippingLabels[shipping]}</strong></p></div>
+    <div class="review-order"><p><span>گیرنده</span><strong>${escapeHTML(customer.fullName)} · ${escapeHTML(customer.phone)}</strong></p><p><span>آدرس</span><strong>${escapeHTML(customer.province)}، ${escapeHTML(customer.city)}، ${escapeHTML(customer.address)}</strong></p><p><span>کد پستی</span><strong>${escapeHTML(customer.postalCode)}</strong></p><p><span>روش ارسال</span><strong data-review-shipping>${shippingLabels[shipping]}</strong></p></div>
     <h3 class="checkout-subtitle">روش پرداخت</h3>
     <label class="shipping-option"><input type="radio" name="payment" value="online" ${payment === 'online' ? 'checked' : ''}><span class="shipping-option__body"><strong>پرداخت آنلاین (شبیه‌سازی‌شده)</strong><small>اتصال به درگاه واقعی انجام نمی‌شود.</small></span></label>
     <label class="shipping-option"><input type="radio" name="payment" value="cod" ${payment === 'cod' ? 'checked' : ''}><span class="shipping-option__body"><strong>پرداخت در محل (آزمایشی)</strong><small>فقط برای نمایش روند سفارش.</small></span></label>
     <label class="check checkout-terms"><input type="checkbox" name="terms" ${accepted ? 'checked' : ''}> نمایشی بودن سفارش و شرایط ثبت آن را می‌پذیرم.</label><span class="field__error" data-terms-error></span>
-    ${isOnline() && !store.getUser() ? '<p class="checkout-login-note">برای ثبت سفارش آزمایشی در حساب خود، ابتدا وارد شوید یا ثبت‌نام کنید.</p>' : ''}
-    ${!isOnline() ? '<p class="checkout-login-note">اتصال برقرار نیست؛ سفارش فقط به‌صورت نمایشی روی این دستگاه ثبت می‌شود و به سرور ارسال نمی‌شود.</p>' : ''}
-    <div class="checkout-card__actions"><button class="btn btn--secondary" type="button" data-checkout-back>مرحله قبل</button><button class="btn btn--primary" type="submit">${isOnline() && !store.getUser() ? 'ورود و ثبت سفارش' : isOnline() ? 'ثبت سفارش آزمایشی' : 'ثبت نمایشی آفلاین'} ${icon('arrow','icon--sm')}</button></div></form>`;
+    <p class="checkout-login-note" data-checkout-connection role="status" ${note ? '' : 'hidden'}>${note}</p>
+    <div class="checkout-card__actions"><button class="btn btn--secondary" type="button" data-checkout-back>مرحله قبل</button><button class="btn btn--primary" type="submit" data-order-submit ${getBackendPhase() === 'connecting' ? 'disabled' : ''}>${orderButtonLabel()} ${icon('arrow','icon--sm')}</button></div></form>`;
 }
 function summary() {
   const { subtotal, discount, shipping: fee, total } = store.totals(shipping);
@@ -94,6 +105,37 @@ function render() {
   }
   if (shipping === 'free' && !store.totals('free').eligibleFree) shipping = 'post';
   document.getElementById('main-content').innerHTML = `<div class="container">${breadcrumb([{label:'سبد خرید',href:'cart.html'},{label:'تسویه حساب'}])}<h1 class="checkout-title">تسویه حساب</h1>${steps()}<div class="checkout-layout"><section class="checkout-card">${step === 1 ? stepOne() : step === 2 ? stepTwo() : stepThree()}</section>${summary()}</div></div>`;
+}
+// Update totals and connection status without replacing in-progress checkout fields.
+export function refreshCheckout() {
+  if (success || document.body.dataset.page !== 'checkout') return;
+  const form = document.querySelector('[data-checkout-form]');
+  if (!store.cartDetails().length || !form) { render(); return; }
+  if (shipping === 'free' && !store.totals('free').eligibleFree) { shipping = 'post'; persistDraft(); }
+  const oldSummary = document.querySelector('.checkout-summary');
+  if (oldSummary) {
+    const wasOpen = oldSummary.open;
+    const wasFocused = oldSummary.contains(document.activeElement);
+    oldSummary.outerHTML = summary();
+    const nextSummary = document.querySelector('.checkout-summary');
+    nextSummary.open = wasOpen;
+    if (wasFocused) nextSummary.querySelector('summary')?.focus({ preventScroll:true });
+  }
+  const free = form.querySelector('[name="shipping"][value="free"]');
+  if (free) {
+    free.disabled = !store.totals('free').eligibleFree;
+    const selected = form.querySelector(`[name="shipping"][value="${shipping}"]`);
+    if (selected) selected.checked = true;
+  }
+  const shippingLabel = form.querySelector('[data-review-shipping]');
+  if (shippingLabel) shippingLabel.textContent = shippingLabels[shipping];
+  const status = form.querySelector('[data-checkout-connection]');
+  if (status) { status.textContent = connectionNote(); status.hidden = !status.textContent; }
+  const button = form.querySelector('[data-order-submit]');
+  if (button) {
+    button.disabled = getBackendPhase() === 'connecting' || submitting;
+    button.innerHTML = `${orderButtonLabel()} ${icon('arrow','icon--sm')}`;
+  }
 }
 function showFieldError(input) {
   const message = rules[input.name]?.(input.value) || '';
@@ -121,6 +163,7 @@ export function initCheckout() {
     if (document.body.dataset.page !== 'checkout') return;
     if (event.target.closest('[data-checkout-form="1"]') && rules[event.target.name]) {
       customer[event.target.name] = event.target.value;
+      persistDraft();
       if (event.target.getAttribute('aria-invalid') === 'true') showFieldError(event.target);
     }
   });
@@ -129,6 +172,7 @@ export function initCheckout() {
   });
   document.addEventListener('change', event => {
     if (document.body.dataset.page !== 'checkout') return;
+    if (event.target.closest('[data-checkout-form="1"]') && rules[event.target.name]) { customer[event.target.name] = event.target.value; persistDraft(); }
     if (event.target.name === 'shipping') { shipping = event.target.value; persistDraft(); render(); }
     if (event.target.name === 'payment') { payment = event.target.value; persistDraft(); }
     if (event.target.name === 'terms') { accepted = event.target.checked; const error = document.querySelector('[data-terms-error]'); if (error) error.textContent = ''; }
@@ -142,9 +186,11 @@ export function initCheckout() {
     event.preventDefault();
     if (step === 1) { if (!validateForm(form)) return; step = 2; persistDraft(); render(); document.querySelector('[data-step-title]')?.focus(); return; }
     if (step === 2) { step = 3; persistDraft(); render(); document.querySelector('[data-step-title]')?.focus(); return; }
+    if (getBackendPhase() === 'connecting') { toast('در حال بررسی اتصال و حساب شما هستیم؛ کمی صبر کنید.'); return; }
+    if (submitting) return;
     if (!accepted) { form.querySelector('[data-terms-error]').textContent = 'برای ادامه، شرایط سفارش آزمایشی را بپذیرید.'; form.elements.terms.focus(); return; }
     if (isOnline() && !store.getUser()) { persistDraft(); location.href = 'account.html?return=checkout'; return; }
-    const button = form.querySelector('[type="submit"]'); button.disabled = true;
+    const button = form.querySelector('[type="submit"]'); button.disabled = true; submitting = true;
     try {
       if (isOnline()) {
         success = await placeOrder(store.getState().cart,customer,shipping,payment,store.getState().coupon?.code);
@@ -158,6 +204,7 @@ export function initCheckout() {
     } catch (error) {
       const message = /OUT_OF_STOCK/.test(error.message) ? 'موجودی یکی از کالاها تغییر کرده است؛ سبد خرید را بررسی کنید.' : /INVALID_COUPON/.test(error.message) ? 'کد تخفیف دیگر معتبر نیست.' : 'ثبت سفارش انجام نشد؛ لطفاً دوباره تلاش کنید.';
       toast(message,'error'); button.disabled = false;
-    }
+    } finally { submitting = false; }
   });
+  window.addEventListener('styleland:store', refreshCheckout);
 }
