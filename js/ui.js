@@ -113,9 +113,31 @@ export function renderFooter() {
   </div></div>
   <div class="footer__bottom"><span>© ${fa(new Date().getFullYear())} استایلند؛ همه حقوق محفوظ است.</span><div class="footer__trust"><span>پرداخت آزمایشی</span><span>ارسال نمونه</span><span>فروشگاه نمایشی</span></div></div></div>`;
 }
+function updateCountBadge(element, count) {
+  const value = fa(count);
+  const previous = element.dataset.displayedCount;
+  element.textContent = value;
+  element.hidden = !count;
+  const reducedMotion = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (count && previous !== undefined && previous !== value && !reducedMotion) {
+    element.classList.remove('is-count-popping');
+    void element.offsetWidth;
+    element.classList.add('is-count-popping');
+    const finish = event => {
+      if (event.animationName !== 'styleland-count-pop') return;
+      element.classList.remove('is-count-popping');
+      element.removeEventListener('animationend', finish);
+    };
+    element.addEventListener('animationend', finish);
+  }
+  element.dataset.displayedCount = value;
+}
+
 export function updateHeaderState() {
-  document.querySelectorAll('[data-cart-count]').forEach(el => { const count = store.cartCount(); el.textContent = fa(count); el.hidden = !count; });
-  document.querySelectorAll('[data-wishlist-count]').forEach(el => { const count = store.getState().wishlist.length; el.textContent = fa(count); el.hidden = !count; });
+  const cartCount = store.cartCount();
+  const wishlistCount = store.getState().wishlist.length;
+  document.querySelectorAll('[data-cart-count]').forEach(el => updateCountBadge(el, cartCount));
+  document.querySelectorAll('[data-wishlist-count]').forEach(el => updateCountBadge(el, wishlistCount));
   document.querySelectorAll('[data-account-label]').forEach(el => { el.textContent = store.getUser() ? 'حساب کاربری' : 'ورود / ثبت‌نام'; });
   document.querySelectorAll('[data-wishlist]').forEach(el => {
     const active = store.isWishlisted(el.dataset.wishlist);

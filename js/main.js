@@ -4,6 +4,7 @@ import { FREE_SHIPPING_THRESHOLD } from './config.js';
 import { icon, escapeHTML as e, fa, price, latinDigits, toFaDate, image, toast, breadcrumb, sectionHeading, productCard, articleCard, emptyState, renderHeader, renderFooter, updateHeaderState, refreshLiveSearch, bindUI, showOverlay, closeOverlay, modal, quantityControl, shippingProgress } from './ui.js';
 import { initFilters, refreshFilters } from './filters.js';
 import { initCheckout, refreshCheckout } from './checkout.js';
+import { initMotion, observeMotion } from './motion.js';
 
 const main = document.getElementById('main-content');
 let sliderTimer;
@@ -341,13 +342,12 @@ function bindPageEvents() {
       catch {toast('ذخیره آدرس انجام نشد.','error');}
     }
   });
-  window.addEventListener('styleland:store',()=>{if(page==='cart')renderCartPreservingInput();if(page==='wishlist')renderWishlist();});
+  window.addEventListener('styleland:store',()=>{if(page==='cart')renderCartPreservingInput();if(page==='wishlist')renderWishlist();observeMotion();});
 }
 // Background catalog refreshes update only the relevant regions. A focused
 // control, an open overlay, or an in-progress form is never replaced.
 const pendingAreas = new Map();
 const pendingViews = new Map();
-let revealObserver;
 function patchArea(element, html) {
   if (!element) return;
   if (element.contains(document.activeElement)) { pendingAreas.set(element, html); return; }
@@ -372,18 +372,6 @@ function flushBackgroundUpdates() {
   if (!document.querySelector('[data-overlay]') && (document.activeElement === main || !main.contains(document.activeElement))) {
     for (const [name, callback] of [...pendingViews]) scheduleMainRefresh(name, callback);
   }
-}
-function observeMotion() {
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window)) return;
-  if (!revealObserver) revealObserver = new IntersectionObserver(entries => {
-    for (const entry of entries) if (entry.isIntersecting) {
-      entry.target.classList.add('is-revealing');
-      revealObserver.unobserve(entry.target);
-    }
-  }, { rootMargin:'0px 0px -35px 0px', threshold:.05 });
-  main.querySelectorAll('.section__heading, .style-edit__heading, .style-story, .deal-banner, .collection, .article-card').forEach(element => {
-    if (!element.dataset.motionObserved) { element.dataset.motionObserved = 'true'; revealObserver.observe(element); }
-  });
 }
 function refreshHome(changed) {
   const { products, categories, brands, posts } = getCatalog();
@@ -498,8 +486,9 @@ async function start() {
   // server data continue in parallel instead of blocking the first screen.
   const backend = initBackend();
   renderHeader(); renderFooter();
-  Promise.resolve(renderPage()).catch(error => console.error('Styleland page:',error));
-  observeMotion();
+  const pageRender = renderPage();
+  initMotion();
+  Promise.resolve(pageRender).then(() => observeMotion()).catch(error => console.error('Styleland page:',error));
   const online=await backend;
   if(online) {
     try {const session=await getSession();if(session?.user)await store.setUser(session.user);}
