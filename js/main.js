@@ -1,9 +1,9 @@
-import { initBackend, getCatalog, getProduct, getBrandName, getCategoryName, getSession, getClient, isOnline, checkCoupon, getReviews, addReview, signIn, signUp, signOut, getOrders, getProfile, updateProfile } from './supabase.js';
+import { initBackend, getCatalog, getProduct, getBrandName, getCategoryName, getSession, getClient, isOnline, getBackendPhase, finishBackendInitialization, checkCoupon, getReviews, addReview, signIn, signUp, signOut, getOrders, getProfile, updateProfile } from './supabase.js';
 import * as store from './store.js';
 import { FREE_SHIPPING_THRESHOLD } from './config.js';
-import { icon, escapeHTML as e, fa, price, latinDigits, toFaDate, image, toast, breadcrumb, sectionHeading, productCard, articleCard, emptyState, renderHeader, renderFooter, updateHeaderState, bindUI, showOverlay, closeOverlay, modal, quantityControl, shippingProgress } from './ui.js';
-import { initFilters } from './filters.js';
-import { initCheckout } from './checkout.js';
+import { icon, escapeHTML as e, fa, price, latinDigits, toFaDate, image, toast, breadcrumb, sectionHeading, productCard, articleCard, emptyState, renderHeader, renderFooter, updateHeaderState, refreshLiveSearch, bindUI, showOverlay, closeOverlay, modal, quantityControl, shippingProgress } from './ui.js';
+import { initFilters, refreshFilters } from './filters.js';
+import { initCheckout, refreshCheckout } from './checkout.js';
 
 const main = document.getElementById('main-content');
 let sliderTimer;
@@ -16,6 +16,7 @@ let blogCategory = 'همه';
 let blogQuery = '';
 let brandLetter = 'همه';
 let simulatedOtp = '';
+let couponChecking = false;
 const page = document.body.dataset.page;
 
 function renderHome() {
@@ -26,18 +27,26 @@ function renderHome() {
   ];
   main.innerHTML = `<div class="container"><section class="hero-layout" aria-label="کالکشن جدید و مزایای استایلند"><aside class="benefits" aria-label="مزایای خرید">${benefits.map(([symbol,title,text]) => `<div class="benefit"><span class="benefit__icon">${icon(symbol)}</span><div><h3>${title}</h3><p>${text}</p></div></div>`).join('')}</aside>
     <div class="hero" aria-roledescription="اسلایدر" aria-label="پیشنهادهای استایلند">
-      <div class="hero__slide" data-slide="0"><img class="hero__image" src="assets/hero-fashion.jpg" width="1568" height="882" fetchpriority="high" alt="مدل‌های زن و مرد در کالکشن جدید استایلند"><div class="hero__content"><p class="hero__eyebrow">کالکشن جدید استایلند</p><h1 class="hero__title">استایل جدیدتو <span>از اینجا</span> شروع کن</h1><p class="hero__description">جدیدترین کالکشن‌های زنانه و مردانه از برندهای معتبر دنیا</p><a href="products.html?sort=newest" class="btn btn--primary">مشاهده کالکشن جدید ${icon('arrow','icon--sm')}</a></div></div>
-      <div class="hero__slide hero__slide--secondary" data-slide="1" hidden>${image('https://images.unsplash.com/photo-1507297448044-a99b358cd06e?w=1400&q=80&fit=crop','assets/editorial/editorial-couple.jpg','استایل روزمره زنانه و مردانه','hero__image')}<div class="hero__content"><p class="hero__eyebrow">فرصت‌های دوست‌داشتنی</p><h2 class="hero__title">فصل تازه، <span>انتخاب تازه</span></h2><p class="hero__description">آیتم‌های محبوبت را با تخفیف‌های ویژه پیدا کن.</p><a href="products.html?sale=1" class="btn btn--primary">مشاهده تخفیف‌ها ${icon('arrow','icon--sm')}</a></div></div>
-      <div class="hero__slide hero__slide--secondary" data-slide="2" hidden>${image('https://images.unsplash.com/photo-1630484179057-75e24310e2ff?w=1400&q=80&fit=crop','assets/products/bag-brown.jpg','اکسسوری و کیف برای استایل روزمره','hero__image')}<div class="hero__content"><p class="hero__eyebrow">جزئیات متفاوت</p><h2 class="hero__title">استایلت را <span>کامل کن</span></h2><p class="hero__description">اکسسوری‌هایی برای لحظه‌های ساده و خاص تو.</p><a href="products.html?category=accessories" class="btn btn--primary">کشف اکسسوری‌ها ${icon('arrow','icon--sm')}</a></div></div>
-      <div class="hero__dots" aria-label="انتخاب اسلاید">${[0,1,2].map(i => `<button class="hero__dot" type="button" data-slide-to="${i}" aria-label="نمایش اسلاید ${fa(i+1)}" aria-current="${i===0}"></button>`).join('')}</div><span class="hero__number" data-slide-number>01 / 03</span>
+      <div class="hero__slide is-active" data-slide="0" aria-hidden="false"><img class="hero__image" src="assets/hero-fashion.webp" data-fallback="assets/hero-fashion.jpg" width="1600" height="900" fetchpriority="high" decoding="async" alt="مدل‌های زن و مرد در کالکشن جدید استایلند"><div class="hero__content"><p class="hero__eyebrow">کالکشن جدید استایلند</p><h1 class="hero__title">استایل جدیدتو <span>از اینجا</span> شروع کن</h1><p class="hero__description">جدیدترین کالکشن‌های زنانه و مردانه از برندهای معتبر دنیا</p><a href="products.html?sort=newest" class="btn btn--primary">مشاهده کالکشن جدید ${icon('arrow','icon--sm')}</a></div></div>
+      <div class="hero__slide hero__slide--secondary" data-slide="1" aria-hidden="true" inert>${image('https://images.unsplash.com/photo-1507297448044-a99b358cd06e?w=1400&q=80&fit=crop','assets/editorial/editorial-couple.jpg','استایل روزمره زنانه و مردانه','hero__image')}<div class="hero__content"><p class="hero__eyebrow">فرصت‌های دوست‌داشتنی</p><h2 class="hero__title">فصل تازه، <span>انتخاب تازه</span></h2><p class="hero__description">آیتم‌های محبوبت را با تخفیف‌های ویژه پیدا کن.</p><a href="products.html?sale=1" class="btn btn--primary">مشاهده تخفیف‌ها ${icon('arrow','icon--sm')}</a></div></div>
+      <div class="hero__slide hero__slide--secondary" data-slide="2" aria-hidden="true" inert>${image('https://images.unsplash.com/photo-1630484179057-75e24310e2ff?w=1400&q=80&fit=crop','assets/products/bag-brown.jpg','اکسسوری و کیف برای استایل روزمره','hero__image')}<div class="hero__content"><p class="hero__eyebrow">جزئیات متفاوت</p><h2 class="hero__title">استایلت را <span>کامل کن</span></h2><p class="hero__description">اکسسوری‌هایی برای لحظه‌های ساده و خاص تو.</p><a href="products.html?category=accessories" class="btn btn--primary">کشف اکسسوری‌ها ${icon('arrow','icon--sm')}</a></div></div>
+      <div class="hero__dots" aria-label="انتخاب اسلاید">${[0,1,2].map(i => `<button class="hero__dot" type="button" data-slide-to="${i}" aria-label="نمایش اسلاید ${fa(i+1)}" aria-current="${i===0}"></button>`).join('')}</div><button class="hero__pause" type="button" data-slider-toggle aria-label="توقف چرخش خودکار اسلایدها" aria-pressed="false"><span aria-hidden="true">Ⅱ</span></button><span class="hero__number" data-slide-number>01 / 03</span>
     </div></section>
-    <section class="section" aria-labelledby="category-title">${sectionHeading('دسته‌بندی‌های محبوب','از هر چیزی که دوست داری، شروع کن.','products.html','همه دسته‌ها','EXPLORE THE COLLECTION')}<div class="category-grid no-scrollbar">${categories.map(c => `<a class="category-card" href="products.html?category=${encodeURIComponent(c.slug)}">${image(c.image,c.localImage,c.name,'category-card__image')}<div class="category-card__body"><h3>${e(c.name)}</h3>${icon('arrow','icon--sm category-card__arrow')}</div></a>`).join('')}</div></section>
-    <section class="section">${sectionHeading('پیشنهادهای ویژه','منتخب‌هایی برای استایل هر روز تو','products.html?sale=1','مشاهده همه','CURATED FOR YOU')}<div class="product-grid">${products.slice(0,6).map(productCard).join('')}</div></section>
+    <section class="section" aria-label="دسته‌بندی‌های محبوب">${sectionHeading('دسته‌بندی‌های محبوب','از هر چیزی که دوست داری، شروع کن.','products.html','همه دسته‌ها','EXPLORE THE COLLECTION')}<div class="category-grid no-scrollbar" data-home-categories>${categories.map(c => `<a class="category-card" href="products.html?category=${encodeURIComponent(c.slug)}">${image(c.image,c.localImage,c.name,'category-card__image')}<div class="category-card__body"><h3>${e(c.name)}</h3>${icon('arrow','icon--sm category-card__arrow')}</div></a>`).join('')}</div></section>
+    <section class="section style-edit" aria-labelledby="style-edit-title">
+      <div class="style-edit__heading"><div><p class="section__eyebrow">THE STYLELAND EDIT / 01</p><h2 id="style-edit-title">استایل، از <span>جزئیات</span> شروع می‌شه.</h2><p>سه انتخاب، برای هزار جور خودت بودن.</p></div><a class="section-link" href="products.html">کشف همه مجموعه‌ها ${icon('arrow','icon--sm')}</a></div>
+      <div class="style-edit__grid no-scrollbar">
+        <a class="style-story style-story--women" href="products.html?gender=women">${image('assets/editorial/women-campaign.jpg','assets/editorial/women-campaign.jpg','استایل زنانه با پالتوی کرم','style-story__image')}<span class="style-story__index" aria-hidden="true">01 / WOMEN</span><span class="style-story__copy"><span>برای روزهای خودت</span><strong>دنیای زنانه</strong><span class="style-story__link">کشف مجموعه ${icon('arrow','icon--sm')}</span></span></a>
+        <a class="style-story style-story--men" href="products.html?gender=men">${image('assets/editorial/men-campaign.jpg','assets/editorial/men-campaign.jpg','استایل مردانه با پیراهن ذغالی','style-story__image')}<span class="style-story__index" aria-hidden="true">02 / MEN</span><span class="style-story__copy"><span>ساده و بی‌تکرار</span><strong>دنیای مردانه</strong><span class="style-story__link">کشف مجموعه ${icon('arrow','icon--sm')}</span></span></a>
+        <a class="style-story style-story--details" href="products.html?category=accessories">${image('assets/editorial/accessories-campaign.jpg','assets/editorial/accessories-campaign.jpg','کیف چرمی، ساعت و عینک آفتابی','style-story__image')}<span class="style-story__index" aria-hidden="true">03 / DETAILS</span><span class="style-story__copy"><span>تکمیل‌کننده هر استایل</span><strong>جزئیات خاص</strong><span class="style-story__link">کشف اکسسوری ${icon('arrow','icon--sm')}</span></span></a>
+      </div><p class="style-edit__footnote"><span>CURATED FOR YOUR EVERYDAY</span><span>سبک تو، داستان تو ${icon('spark','icon--sm')}</span></p>
+    </section>
+    <section class="section">${sectionHeading('پیشنهادهای ویژه','منتخب‌هایی برای استایل هر روز تو','products.html?sale=1','مشاهده همه','CURATED FOR YOU')}<div class="product-grid" data-home-featured>${products.slice(0,6).map(productCard).join('')}</div></section>
     <section class="section"><div class="deal-banner"><div class="deal-banner__copy"><span class="deal-banner__icon">${icon('tag','icon--lg')}</span><div><p class="section__eyebrow">A LITTLE SOMETHING FOR YOU</p><h2>یه تخفیف، برای حال خوبت</h2><p>پیشنهادهای ویژه منتخب، برای مدتی محدود</p></div></div><div class="deal-banner__action"><div class="countdown" data-countdown aria-label="زمان باقی‌مانده"></div><a class="btn btn--primary" href="products.html?sale=1">مشاهده تخفیف‌ها ${icon('arrow','icon--sm')}</a></div></div></section>
     <section class="section"><div class="section__heading"><div><p class="section__eyebrow">FIND YOUR FAVORITES</p><h2 class="section__title">برای سلیقه تو</h2><p class="section__description">محبوب‌ها و تازه‌رسیده‌ها را از دست نده</p></div><a class="section-link" href="products.html">مشاهده همه ${icon('arrow','icon--sm')}</a></div><div class="tabs home-tabs" role="tablist" aria-label="مرتب‌سازی محصولات"><button class="tab" role="tab" aria-selected="true" data-home-tab="new">جدیدترین‌ها</button><button class="tab" role="tab" aria-selected="false" data-home-tab="best">پرفروش‌ترین‌ها</button></div><div class="product-grid home-products" data-home-products>${[...products].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,6).map(productCard).join('')}</div></section>
     <section class="section"><div class="collection-grid"><a class="collection" href="products.html?gender=women">${image('https://images.unsplash.com/photo-1648066380643-675d30c3cd17?w=900&q=80&fit=crop','assets/products/trench.jpg','کالکشن زنانه')}<div class="collection__content"><p>برای خودِ منحصر‌به‌فردت</p><h3>کالکشن زنانه</h3><span class="btn btn--small">مشاهده کالکشن ${icon('arrow','icon--sm')}</span></div></a><a class="collection" href="products.html?gender=men">${image('https://images.unsplash.com/photo-1603233176974-0a4333ee6078?w=900&q=80&fit=crop','assets/products/coat-men.jpg','کالکشن مردانه')}<div class="collection__content"><p>سادگی، همیشه جذابه</p><h3>کالکشن مردانه</h3><span class="btn btn--small">مشاهده کالکشن ${icon('arrow','icon--sm')}</span></div></a></div></section>
-    <section class="section">${sectionHeading('برندهای منتخب','نام‌هایی که دوستشان داریم','brands.html','همه برندها','OUR FAVORITE BRANDS')}<div class="brand-strip">${brands.map(b=>`<a href="products.html?brand=${encodeURIComponent(b.slug)}" dir="ltr">${e(b.name)}</a>`).join('')}</div></section>
-    <section class="section">${sectionHeading('از مجله استایلند','ایده‌های تازه برای استایل هر روز','blog.html','همه مطالب','THE STYLE JOURNAL')}<div class="article-grid">${posts.slice(0,3).map(articleCard).join('')}</div></section>
+    <section class="section">${sectionHeading('برندهای منتخب','نام‌هایی که دوستشان داریم','brands.html','همه برندها','OUR FAVORITE BRANDS')}<div class="brand-strip" data-home-brands>${brands.map(b=>`<a href="products.html?brand=${encodeURIComponent(b.slug)}" dir="ltr">${e(b.name)}</a>`).join('')}</div></section>
+    <section class="section">${sectionHeading('از مجله استایلند','ایده‌های تازه برای استایل هر روز','blog.html','همه مطالب','THE STYLE JOURNAL')}<div class="article-grid" data-home-posts>${posts.slice(0,3).map(articleCard).join('')}</div></section>
     <section class="section"><div class="newsletter"><div class="newsletter__title"><span class="newsletter__icon">${icon('mail')}</span><div><h2>خبرهای خوب رو از دست نده</h2><p>برای باخبر شدن از تازه‌ها و پیشنهادهای استایلند عضو شو.</p></div></div><form class="newsletter__form" data-newsletter><label class="visually-hidden" for="newsletter-email">آدرس ایمیل</label><input class="input" id="newsletter-email" type="email" name="email" placeholder="آدرس ایمیل شما" required maxlength="254" dir="ltr"><button class="btn btn--accent" type="submit">عضویت در خبرنامه</button></form></div></section>
   </div>`;
   initSlider(); initCountdown();
@@ -45,14 +54,35 @@ function renderHome() {
 function initSlider() {
   clearInterval(sliderTimer);
   const hero = document.querySelector('.hero'); if (!hero) return;
-  let current = 0, paused = false, startX = 0;
-  const show = value => { current = (value + 3) % 3; hero.querySelectorAll('[data-slide]').forEach(slide => { slide.hidden = Number(slide.dataset.slide) !== current; }); hero.querySelectorAll('[data-slide-to]').forEach(dot => dot.setAttribute('aria-current',String(Number(dot.dataset.slideTo) === current))); hero.querySelector('[data-slide-number]').textContent = `0${current+1} / 03`; };
-  hero.addEventListener('click', event => { const dot = event.target.closest('[data-slide-to]'); if (dot) show(Number(dot.dataset.slideTo)); });
+  let current = 0, paused = false, userPaused = false, startX = 0;
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const toggle = hero.querySelector('[data-slider-toggle]');
+  if (reducedMotion) toggle.hidden = true;
+  const show = value => {
+    current = (value + 3) % 3;
+    hero.querySelectorAll('[data-slide]').forEach(slide => {
+      const active = Number(slide.dataset.slide) === current;
+      slide.classList.toggle('is-active', active);
+      slide.setAttribute('aria-hidden', String(!active));
+      slide.inert = !active;
+    });
+    hero.querySelectorAll('[data-slide-to]').forEach(dot => dot.setAttribute('aria-current',String(Number(dot.dataset.slideTo) === current)));
+    hero.querySelector('[data-slide-number]').textContent = `0${current+1} / 03`;
+  };
+  hero.addEventListener('click', event => {
+    const dot = event.target.closest('[data-slide-to]'); if (dot) show(Number(dot.dataset.slideTo));
+    if (event.target.closest('[data-slider-toggle]')) {
+      userPaused = !userPaused;
+      toggle.setAttribute('aria-pressed',String(userPaused));
+      toggle.setAttribute('aria-label',userPaused?'ادامه چرخش خودکار اسلایدها':'توقف چرخش خودکار اسلایدها');
+      toggle.querySelector('span').textContent=userPaused?'▶':'Ⅱ';
+    }
+  });
   hero.addEventListener('mouseenter', () => { paused = true; }); hero.addEventListener('mouseleave', () => { paused = false; });
   hero.addEventListener('focusin', () => { paused = true; }); hero.addEventListener('focusout', event => { if (!hero.contains(event.relatedTarget)) paused = false; });
   hero.addEventListener('touchstart', event => { startX = event.touches[0].clientX; }, { passive:true });
   hero.addEventListener('touchend', event => { const delta = event.changedTouches[0].clientX - startX; if (Math.abs(delta)>50) show(current + (delta < 0 ? 1 : -1)); }, { passive:true });
-  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) sliderTimer = setInterval(() => { if (!paused && !document.hidden) show(current+1); },5000);
+  if (!reducedMotion) sliderTimer = setInterval(() => { if (!paused && !userPaused && !document.hidden) show(current+1); },5000);
 }
 function initCountdown() {
   clearInterval(countdownTimer);
@@ -69,9 +99,12 @@ function initCountdown() {
 function selectedProduct() { return getProduct(new URLSearchParams(location.search).get('id')); }
 function available(product,color,size) { return product.variants?.length ? product.variants.some(v=>v.color===color && v.size===size && v.stock>0) : product.stock>0; }
 function productSizes(product) { return product.sizes.map(size => `<button type="button" class="chip ${productSelection.size===size?'is-selected':''}" data-product-size="${e(size)}" aria-pressed="${productSelection.size===size}" ${available(product,productSelection.color,size)?'':'disabled'}>${e(size)}</button>`).join(''); }
-function productReviews() {
+function reviewList() {
   const reviews = productSelection.reviews;
-  return `<div>${reviews.length ? reviews.map(review => `<article class="review"><div class="review__head"><span>${e(review.display_name)}</span><span class="rating">${icon('star','rating__star')} ${fa(review.rating)}</span></div><p>${e(review.comment)}</p></article>`).join('') : '<p>هنوز نظری ثبت نشده است.</p>'}</div>${store.getUser() ? `<form class="review-form" data-review-form><h3>نظر شما</h3><label class="field"><span class="field__label">نام نمایشی</span><input class="input" name="displayName" required minlength="1" maxlength="80" value="${e(store.getUser().user_metadata?.full_name || '')}"></label><label class="field"><span class="field__label">امتیاز</span><select class="select" name="rating">${[5,4,3,2,1].map(n=>`<option value="${n}">${fa(n)} از ۵</option>`).join('')}</select></label><label class="field"><span class="field__label">دیدگاه</span><textarea class="textarea" name="comment" required minlength="3" maxlength="1000"></textarea></label><button class="btn btn--primary" type="submit">ثبت نظر</button></form>` : '<p class="review-login">برای ثبت نظر <a href="account.html">وارد حساب کاربری شوید.</a></p>'}`;
+  return reviews.length ? reviews.map(review => `<article class="review"><div class="review__head"><span>${e(review.display_name)}</span><span class="rating">${icon('star','rating__star')} ${fa(review.rating)}</span></div><p>${e(review.comment)}</p></article>`).join('') : '<p>هنوز نظری ثبت نشده است.</p>';
+}
+function productReviews() {
+  return `<div data-review-list>${reviewList()}</div>${store.getUser() ? `<form class="review-form" data-review-form><h3>نظر شما</h3><label class="field"><span class="field__label">نام نمایشی</span><input class="input" name="displayName" required minlength="1" maxlength="80" value="${e(store.getUser().user_metadata?.full_name || '')}"></label><label class="field"><span class="field__label">امتیاز</span><select class="select" name="rating">${[5,4,3,2,1].map(n=>`<option value="${n}">${fa(n)} از ۵</option>`).join('')}</select></label><label class="field"><span class="field__label">دیدگاه</span><textarea class="textarea" name="comment" required minlength="3" maxlength="1000"></textarea></label><button class="btn btn--primary" type="submit">ثبت نظر</button></form>` : '<p class="review-login">برای ثبت نظر <a href="account.html">وارد حساب کاربری شوید.</a></p>'}`;
 }
 function productPanel(product) {
   switch(productSelection.tab) {
@@ -100,9 +133,9 @@ async function renderProduct() {
   const recent=readViewed().filter(id=>id!==product.id).map(getProduct).filter(Boolean).slice(0,6); saveViewed(product.id);
   const similar=getCatalog().products.filter(p=>p.category===product.category && p.id!==product.id).slice(0,6);
   addJsonLd(product);
-  main.innerHTML=`<div class="container">${breadcrumb([{label:getCategoryName(product.category),href:`products.html?category=${encodeURIComponent(product.category)}`},{label:product.name}])}<section class="product-detail"><div class="gallery"><div class="gallery__thumbs">${product.images.map((url,index)=>`<button class="gallery__thumb ${index===0?'is-selected':''}" type="button" data-gallery="${index}" aria-label="تصویر ${fa(index+1)} محصول" aria-pressed="${index===0}">${image(url,product.localImages?.[index],`${product.name}، تصویر ${fa(index+1)}`)}</button>`).join('')}</div><div class="gallery__main" data-gallery-main>${image(product.images[0],product.localImages?.[0],product.name)}</div></div>
+  main.innerHTML=`<div class="container">${breadcrumb([{label:getCategoryName(product.category),href:`products.html?category=${encodeURIComponent(product.category)}`},{label:product.name}])}<section class="product-detail"><div class="gallery"><div class="gallery__thumbs">${product.images.map((url,index)=>`<button class="gallery__thumb ${index===0?'is-selected':''}" type="button" data-gallery="${index}" aria-label="تصویر ${fa(index+1)} محصول" aria-pressed="${index===0}">${image(url,product.localImages?.[index],`${product.name}، تصویر ${fa(index+1)}`)}</button>`).join('')}</div><div class="gallery__main" data-gallery-main>${image(product.images[0],product.localImages?.[0],product.name,'','loading="eager" fetchpriority="high"')}</div></div>
     <div class="product-info"><p class="product-info__brand">${e(getBrandName(product.brand))}</p><h1>${e(product.name)}</h1><div class="product-info__meta"><span class="rating">${icon('star','rating__star')} ${fa(product.rating)} <span>(${fa(product.reviewsCount)} نظر)</span></span><span>کد محصول: ${fa(product.id+1000)}</span></div><div class="product-info__price"><strong>${fa(product.price)} <small>تومان</small></strong>${product.oldPrice?`<del>${fa(product.oldPrice)}</del><span class="badge badge--discount">٪${fa(product.discountPercent)} تخفیف</span>`:''}</div>
-    <div class="product-info__choice"><div class="product-info__choice-head"><span>رنگ: <span data-product-color-label>${e(productSelection.color)}</span></span></div><div class="product-info__choices">${product.colors.map(c=>`<button class="color-chip ${c.name===productSelection.color?'is-selected':''}" type="button" data-color="${e(c.name)}" data-product-color="${e(c.name)}" aria-label="رنگ ${e(c.name)}" aria-pressed="${c.name===productSelection.color}" ${product.sizes.some(size=>available(product,c.name,size))?'':'disabled'}></button>`).join('')}</div></div>
+    <div class="product-info__choice"><div class="product-info__choice-head"><span>رنگ: <span data-product-color-label>${e(productSelection.color)}</span></span></div><div class="product-info__choices" data-product-colors>${product.colors.map(c=>`<button class="color-chip ${c.name===productSelection.color?'is-selected':''}" type="button" data-color="${e(c.name)}" data-product-color="${e(c.name)}" aria-label="رنگ ${e(c.name)}" aria-pressed="${c.name===productSelection.color}" ${product.sizes.some(size=>available(product,c.name,size))?'':'disabled'}></button>`).join('')}</div></div>
     <div class="product-info__choice"><div class="product-info__choice-head"><span>سایز: <span data-product-size-label>${e(productSelection.size)}</span></span><button class="btn btn--ghost" type="button" data-size-guide>راهنمای سایز</button></div><div class="product-info__choices" data-product-sizes>${productSizes(product)}</div></div>
     <div class="product-info__actions"><div class="quantity"><button type="button" data-product-quantity="minus" aria-label="کاهش تعداد">−</button><span data-product-quantity-value>۱</span><button type="button" data-product-quantity="plus" aria-label="افزایش تعداد">+</button></div><button type="button" class="btn btn--primary add-main" data-add-product ${!product.stock?'disabled':''}>افزودن به سبد خرید ${icon('bag','icon--sm')}</button><button class="icon-button icon-button--white ${store.isWishlisted(product.id)?'is-active':''}" type="button" data-wishlist="${product.id}" aria-label="افزودن به علاقه‌مندی‌ها" aria-pressed="${store.isWishlisted(product.id)}">${icon('heart')}</button></div>
     <div class="product-info__trust"><span>${icon('truck')} ارسال رایگان مشروط</span><span>${icon('shield')} تضمین اصالت</span><span>${icon('refresh')} ۷ روز بازگشت</span></div></div></section>
@@ -113,7 +146,7 @@ async function renderProduct() {
   gallery.addEventListener('touchstart',event=>{x=event.touches[0].clientX;},{passive:true});
   gallery.addEventListener('touchend',event=>{const delta=event.changedTouches[0].clientX-x;if(Math.abs(delta)>50) changeGallery(product,(productSelection.gallery+(delta<0?1:-1)+product.images.length)%product.images.length);},{passive:true});
   productSelection.reviews=await getReviews(product.id);
-  if (productSelection.tab==='reviews') updateProductPanel(product);
+  if (productSelection.tab==='reviews') { const list=document.querySelector('[data-review-list]'); if(list) list.innerHTML=reviewList(); }
 }
 function changeGallery(product,index) {
   productSelection.gallery=index;
@@ -129,7 +162,19 @@ function renderCart() {
   if (!items.length) { main.innerHTML=`<div class="container">${breadcrumb([{label:'سبد خرید'}])}<div class="page-heading"><h1>سبد خرید</h1></div>${emptyState('سبد خریدت هنوز خالیه','وقتشه از بین محصولات دوست‌داشتنی، انتخاب خودت رو پیدا کنی.','رفتن به فروشگاه','products.html','bag')}<section class="section">${sectionHeading('شاید این‌ها را دوست داشته باشی','','products.html')}<div class="product-grid">${getCatalog().products.slice(0,6).map(productCard).join('')}</div></section></div>`; return; }
   const sum=store.totals('post');
   main.innerHTML=`<div class="container">${breadcrumb([{label:'سبد خرید'}])}<div class="page-heading"><div><h1>سبد خرید شما</h1><p>${fa(store.cartCount())} کالا در سبد خرید</p></div></div><div class="cart-layout"><div>${shippingProgress()}<div class="cart-list">${items.map(item=>`<article class="cart-item">${image(item.product.images[0],item.product.localImages?.[0],item.product.name,'cart-item__image')}<div class="cart-item__content"><p>${e(getBrandName(item.product.brand))}</p><h3><a href="product.html?id=${item.productId}">${e(item.product.name)}</a></h3><p>رنگ: ${e(item.color)} · سایز: ${e(item.size)}</p><span class="cart-item__price">${price(item.product.price)}</span></div><div class="cart-item__actions"><button class="icon-button cart-item__remove" type="button" data-remove-cart data-id="${item.productId}" data-color="${e(item.color)}" data-size="${e(item.size)}" aria-label="حذف ${e(item.product.name)}">${icon('trash')}</button>${quantityControl(item)}</div></article>`).join('')}</div></div>
-    <aside class="summary-card"><h2>خلاصه سفارش</h2><div class="summary-card__line"><span>جمع محصولات (${fa(store.cartCount())})</span><strong>${price(sum.subtotal)}</strong></div><div class="summary-card__line"><span>تخفیف کد</span><strong>${sum.discount?`− ${price(sum.discount)}`:'—'}</strong></div><div class="summary-card__line"><span>ارسال پیشتاز (تخمینی)</span><strong>${price(sum.shipping)}</strong></div><form class="coupon-form" data-coupon-form><label class="visually-hidden" for="coupon-code">کد تخفیف</label><input class="input ltr" id="coupon-code" name="coupon" placeholder="کد تخفیف" value="${e(store.getState().coupon?.code||'')}" maxlength="30"><button class="btn btn--secondary btn--small" type="submit">اعمال</button></form>${store.getState().coupon?`<p class="coupon-applied">کد ${e(store.getState().coupon.code)} اعمال شد. <button type="button" data-remove-coupon>حذف</button></p>`:''}<div class="summary-card__line summary-card__line--total"><span>مبلغ قابل پرداخت</span><strong>${price(sum.total)}</strong></div><a class="btn btn--primary btn--block" href="checkout.html">ادامه و ثبت سفارش ${icon('arrow','icon--sm')}</a><p class="summary-card__note">هزینه نهایی با انتخاب روش ارسال مشخص می‌شود. ثبت و پرداخت در این نسخه آزمایشی است.</p></aside></div></div>`;
+    <aside class="summary-card"><h2>خلاصه سفارش</h2><div class="summary-card__line"><span>جمع محصولات (${fa(store.cartCount())})</span><strong>${price(sum.subtotal)}</strong></div><div class="summary-card__line"><span>تخفیف کد</span><strong>${sum.discount?`− ${price(sum.discount)}`:'—'}</strong></div><div class="summary-card__line"><span>ارسال پیشتاز (تخمینی)</span><strong>${price(sum.shipping)}</strong></div><form class="coupon-form" data-coupon-form><label class="visually-hidden" for="coupon-code">کد تخفیف</label><input class="input ltr" id="coupon-code" name="coupon" placeholder="کد تخفیف" value="${e(store.getState().coupon?.code||'')}" maxlength="30"><button class="btn btn--secondary btn--small" type="submit" ${couponChecking?'disabled':''}>اعمال</button></form>${store.getState().coupon?`<p class="coupon-applied">کد ${e(store.getState().coupon.code)} اعمال شد. <button type="button" data-remove-coupon>حذف</button></p>`:''}<div class="summary-card__line summary-card__line--total"><span>مبلغ قابل پرداخت</span><strong>${price(sum.total)}</strong></div><a class="btn btn--primary btn--block" href="checkout.html">ادامه و ثبت سفارش ${icon('arrow','icon--sm')}</a><p class="summary-card__note">هزینه نهایی با انتخاب روش ارسال مشخص می‌شود. ثبت و پرداخت در این نسخه آزمایشی است.</p></aside></div></div>`;
+}
+function renderCartPreservingInput() {
+  const input = document.querySelector('#coupon-code');
+  const value = input?.value;
+  const focused = input === document.activeElement;
+  const start = focused ? input.selectionStart : null, end = focused ? input.selectionEnd : null;
+  renderCart();
+  const replacement = document.querySelector('#coupon-code');
+  if (replacement && value !== undefined) {
+    replacement.value = value;
+    if (focused) { replacement.focus({ preventScroll:true }); replacement.setSelectionRange(start, end); }
+  }
 }
 function renderWishlist() {
   const products=store.getState().wishlist.map(getProduct).filter(Boolean);
@@ -137,7 +182,9 @@ function renderWishlist() {
 }
 function authForm() {
   const signup=authTab==='signup';
-  return `<div class="account-card account-auth"><div class="tabs" role="tablist" aria-label="ورود یا ثبت‌نام"><button class="tab" type="button" role="tab" data-auth-tab="login" aria-selected="${!signup}">ورود</button><button class="tab" type="button" role="tab" data-auth-tab="signup" aria-selected="${signup}">ثبت‌نام</button></div><h1>${signup?'به استایلند خوش اومدی':'خوش برگشتی'}</h1><p class="account-auth__intro">${signup?'برای ساخت حساب، اطلاعات زیر را وارد کن.':'با ایمیل و رمز عبورت وارد حساب شو.'}</p>${!isOnline()?'<p class="checkout-login-note">اتصال به حساب کاربری در حال حاضر برقرار نیست. سبد و علاقه‌مندی‌ها روی همین دستگاه می‌مانند.</p>':''}<form data-auth-form>${signup?'<label class="field"><span class="field__label">نام و نام خانوادگی</span><input class="input" name="fullName" autocomplete="name" minlength="3" maxlength="100" required></label>':''}<label class="field"><span class="field__label">ایمیل</span><input class="input ltr" name="email" type="email" autocomplete="email" required maxlength="254" placeholder="you@example.com"></label><label class="field"><span class="field__label">رمز عبور</span><input class="input ltr" name="password" type="password" autocomplete="${signup?'new-password':'current-password'}" required minlength="8" maxlength="128" placeholder="حداقل ۸ کاراکتر"></label><button class="btn btn--primary btn--block" type="submit" ${!isOnline()?'disabled':''}>${signup?'ساخت حساب کاربری':'ورود به حساب'}</button><p class="text-muted text-small">${signup?'تأیید ایمیل برای فعال‌سازی حساب لازم است.':'ورود با ایمیل و رمز عبور انجام می‌شود.'}</p><p class="field__error" data-auth-error role="alert"></p></form><button class="btn btn--secondary btn--block account-otp" type="button" data-open-otp>ورود با موبایل (نمایشی)</button></div>`;
+  const phase=getBackendPhase();
+  const status=phase==='connecting'?'در حال برقراری اتصال به حساب کاربری هستیم؛ می‌توانید اطلاعاتتان را وارد کنید.':!isOnline()?'اتصال به حساب کاربری در حال حاضر برقرار نیست. سبد و علاقه‌مندی‌ها روی همین دستگاه می‌مانند.':'';
+  return `<div class="account-card account-auth"><div class="tabs" role="tablist" aria-label="ورود یا ثبت‌نام"><button class="tab" type="button" role="tab" data-auth-tab="login" aria-selected="${!signup}">ورود</button><button class="tab" type="button" role="tab" data-auth-tab="signup" aria-selected="${signup}">ثبت‌نام</button></div><h1>${signup?'به استایلند خوش اومدی':'خوش برگشتی'}</h1><p class="account-auth__intro">${signup?'برای ساخت حساب، اطلاعات زیر را وارد کن.':'با ایمیل و رمز عبورت وارد حساب شو.'}</p><p class="checkout-login-note" data-auth-status role="status" ${status?'':'hidden'}>${status}</p><form data-auth-form>${signup?'<label class="field"><span class="field__label">نام و نام خانوادگی</span><input class="input" name="fullName" autocomplete="name" minlength="3" maxlength="100" required></label>':''}<label class="field"><span class="field__label">ایمیل</span><input class="input ltr" name="email" type="email" autocomplete="email" required maxlength="254" placeholder="you@example.com"></label><label class="field"><span class="field__label">رمز عبور</span><input class="input ltr" name="password" type="password" autocomplete="${signup?'new-password':'current-password'}" required minlength="8" maxlength="128" placeholder="حداقل ۸ کاراکتر"></label><button class="btn btn--primary btn--block" type="submit" ${phase==='connecting'||!isOnline()?'disabled':''}>${signup?'ساخت حساب کاربری':'ورود به حساب'}</button><p class="text-muted text-small">${signup?'تأیید ایمیل برای فعال‌سازی حساب لازم است.':'ورود با ایمیل و رمز عبور انجام می‌شود.'}</p><p class="field__error" data-auth-error role="alert"></p></form><button class="btn btn--secondary btn--block account-otp" type="button" data-open-otp>ورود با موبایل (نمایشی)</button></div>`;
 }
 function accountPanel() {
   const profile=accountData.profile || {};
@@ -169,7 +216,7 @@ function renderBlog() {
 }
 function renderBlogResults() {
   const results=getCatalog().posts.filter(p=>(blogCategory==='همه'||p.category===blogCategory)&&`${p.title} ${p.excerpt}`.includes(blogQuery.trim()));
-  const el=document.querySelector('[data-blog-results]'); if(el) el.innerHTML=results.length?`<div class="article-grid">${results.map(articleCard).join('')}</div>`:emptyState('مطلبی پیدا نشد','عبارت دیگری را جستجو کن.','همه مطالب','blog.html','search');
+  const el=document.querySelector('[data-blog-results]'); if(el) patchArea(el,results.length?`<div class="article-grid">${results.map(articleCard).join('')}</div>`:emptyState('مطلبی پیدا نشد','عبارت دیگری را جستجو کن.','همه مطالب','blog.html','search'));
   document.querySelectorAll('[data-blog-category]').forEach(btn=>btn.setAttribute('aria-selected',String(btn.dataset.blogCategory===blogCategory)));
 }
 function renderBrands() {
@@ -179,7 +226,7 @@ function renderBrands() {
 }
 function render404() { main.innerHTML=`<div class="container"><div class="error-page"><p class="error-page__number">404</p><h1>این صفحه رو پیدا نکردیم!</h1><p>شاید نشانی تغییر کرده یا صفحه دیگری را دنبال می‌کردی.</p><a class="btn btn--primary" href="index.html">بازگشت به صفحه اصلی ${icon('arrow','icon--sm')}</a></div></div>`; }
 function renderPage() {
-  switch(page) { case 'home':renderHome();break;case 'products':initFilters();break;case 'product':renderProduct();break;case 'cart':renderCart();break;case 'checkout':initCheckout();break;case 'wishlist':renderWishlist();break;case 'account':loadAccount();break;case 'blog':renderBlog();break;case 'brands':renderBrands();break;default:render404(); }
+  switch(page) { case 'home':return renderHome();case 'products':return initFilters();case 'product':return renderProduct();case 'cart':return renderCart();case 'checkout':return initCheckout();case 'wishlist':return renderWishlist();case 'account':return loadAccount();case 'blog':return renderBlog();case 'brands':return renderBrands();default:return render404(); }
 }
 function bindPageEvents() {
   document.addEventListener('click',async event=>{
@@ -200,12 +247,14 @@ function bindPageEvents() {
         document.querySelector('[data-product-size-label]').textContent=productSelection.size;
         document.querySelector('[data-product-quantity-value]').textContent=fa(1);
         document.querySelectorAll('[data-product-color]').forEach(b=>{const selected=b===button;b.classList.toggle('is-selected',selected);b.setAttribute('aria-pressed',String(selected));});
-        document.querySelector('[data-product-sizes]').innerHTML=productSizes(product); return;
+        document.querySelector('[data-product-sizes]').innerHTML=productSizes(product);
+        document.querySelectorAll('[data-add-product]').forEach(b=>{b.disabled=!available(product,productSelection.color,productSelection.size);}); return;
       }
       if(button.matches('[data-product-size]')) {
         productSelection.size=button.dataset.productSize; productSelection.quantity=1;
         document.querySelector('[data-product-size-label]').textContent=productSelection.size; document.querySelector('[data-product-quantity-value]').textContent=fa(1);
-        document.querySelector('[data-product-sizes]').innerHTML=productSizes(product); return;
+        document.querySelector('[data-product-sizes]').innerHTML=productSizes(product);
+        document.querySelectorAll('[data-add-product]').forEach(b=>{b.disabled=!available(product,productSelection.color,productSelection.size);}); return;
       }
       if(button.matches('[data-product-quantity]')) {
         const variant=product.variants?.find(v=>v.color===productSelection.color&&v.size===productSelection.size);
@@ -216,7 +265,7 @@ function bindPageEvents() {
       if(button.matches('[data-product-tab]')) { productSelection.tab=button.dataset.productTab; updateProductPanel(product); return; }
       if(button.matches('[data-size-guide]')) { showOverlay(modal('راهنمای انتخاب سایز',`<p class="text-muted text-small">اندازه‌ها نمونه هستند؛ پیش از خرید واقعی راهنمای هر محصول را بررسی کنید.</p><div class="size-guide"><div><strong>سایز</strong><strong>دور سینه (سانتی‌متر)</strong></div><div><span>S</span><span>۸۶–۹۲</span></div><div><span>M</span><span>۹۳–۹۹</span></div><div><span>L</span><span>۱۰۰–۱۰۶</span></div><div><span>XL</span><span>۱۰۷–۱۱۳</span></div><div><span>XXL</span><span>۱۱۴–۱۲۰</span></div></div>`)); return; }
     }
-    if(button.matches('[data-remove-coupon]')) { store.setCoupon(null); toast('کد تخفیف حذف شد.'); return; }
+    if(button.matches('[data-remove-coupon]')) { const input=document.querySelector('#coupon-code'); if(input)input.value=''; store.setCoupon(null); toast('کد تخفیف حذف شد.'); return; }
     if(button.matches('[data-open-otp]')) { showOverlay(modal('شبیه‌سازی کد موبایل', `<p class="text-muted text-small">این بخش فقط نمایش رابط است؛ پیامکی ارسال و ورود واقعی انجام نمی‌شود.</p><form class="account-edit-form" data-otp-form="phone"><label class="field"><span class="field__label">شماره موبایل</span><input class="input ltr" type="text" name="phone" inputmode="numeric" maxlength="11" required placeholder="09xxxxxxxxx"></label><button class="btn btn--primary" type="submit">دریافت کد نمایشی</button></form>`)); return; }
     if(button.matches('[data-auth-tab]')) { authTab=button.dataset.authTab; renderAccount(); return; }
     if(button.matches('[data-account-tab]')) { accountTab=button.dataset.accountTab; renderAccount(); return; }
@@ -250,9 +299,11 @@ function bindPageEvents() {
     }
     if(form.matches('[data-coupon-form]')) {
       event.preventDefault(); const value=form.elements.coupon.value.trim(); if(!value){toast('کد تخفیف را وارد کنید.','error');return;}
-      const button=form.querySelector('button');button.disabled=true;
-      try { const coupon=await checkCoupon(value); if(!coupon){toast('کد تخفیف معتبر نیست.','error');button.disabled=false;return;} store.setCoupon(coupon);toast(coupon.offline?'کد نمونه به‌صورت آفلاین اعمال شد.':'کد تخفیف با موفقیت اعمال شد.','success'); }
-      catch { button.disabled=false;toast('بررسی کد تخفیف انجام نشد.','error'); } return;
+      if(couponChecking)return;
+      couponChecking=true; form.querySelector('button').disabled=true;
+      try { const coupon=await checkCoupon(value); if(!coupon){toast('کد تخفیف معتبر نیست.','error');return;} store.setCoupon(coupon);toast(coupon.offline?'کد نمونه به‌صورت آفلاین اعمال شد.':'کد تخفیف با موفقیت اعمال شد.','success'); }
+      catch { toast('بررسی کد تخفیف انجام نشد.','error'); }
+      finally { couponChecking=false; const button=document.querySelector('[data-coupon-form] button'); if(button)button.disabled=false; } return;
     }
     if(form.matches('[data-review-form]')) {
       event.preventDefault();if(!form.reportValidity())return;const user=store.getUser(),product=selectedProduct();if(!user||!product)return;
@@ -290,8 +341,139 @@ function bindPageEvents() {
       catch {toast('ذخیره آدرس انجام نشد.','error');}
     }
   });
-  window.addEventListener('styleland:store',()=>{if(page==='cart')renderCart();if(page==='wishlist')renderWishlist();});
+  window.addEventListener('styleland:store',()=>{if(page==='cart')renderCartPreservingInput();if(page==='wishlist')renderWishlist();});
 }
+// Background catalog refreshes update only the relevant regions. A focused
+// control, an open overlay, or an in-progress form is never replaced.
+const pendingAreas = new Map();
+const pendingViews = new Map();
+let revealObserver;
+function patchArea(element, html) {
+  if (!element) return;
+  if (element.contains(document.activeElement)) { pendingAreas.set(element, html); return; }
+  pendingAreas.delete(element);
+  element.innerHTML = typeof html === 'function' ? html() : html;
+  observeMotion();
+}
+function scheduleMainRefresh(name, callback) {
+  if (document.querySelector('[data-overlay]') || (document.activeElement !== main && main.contains(document.activeElement))) {
+    pendingViews.set(name, callback);
+    return;
+  }
+  pendingViews.delete(name);
+  callback();
+  observeMotion();
+}
+function flushBackgroundUpdates() {
+  for (const [element, html] of pendingAreas) {
+    if (!element.isConnected) pendingAreas.delete(element);
+    else if (!element.contains(document.activeElement)) patchArea(element, html);
+  }
+  if (!document.querySelector('[data-overlay]') && (document.activeElement === main || !main.contains(document.activeElement))) {
+    for (const [name, callback] of [...pendingViews]) scheduleMainRefresh(name, callback);
+  }
+}
+function observeMotion() {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window)) return;
+  if (!revealObserver) revealObserver = new IntersectionObserver(entries => {
+    for (const entry of entries) if (entry.isIntersecting) {
+      entry.target.classList.add('is-revealing');
+      revealObserver.unobserve(entry.target);
+    }
+  }, { rootMargin:'0px 0px -35px 0px', threshold:.05 });
+  main.querySelectorAll('.section__heading, .style-edit__heading, .style-story, .deal-banner, .collection, .article-card').forEach(element => {
+    if (!element.dataset.motionObserved) { element.dataset.motionObserved = 'true'; revealObserver.observe(element); }
+  });
+}
+function refreshHome(changed) {
+  const { products, categories, brands, posts } = getCatalog();
+  if (changed.includes('categories')) patchArea(document.querySelector('[data-home-categories]'), categories.map(c => `<a class="category-card" href="products.html?category=${encodeURIComponent(c.slug)}">${image(c.image,c.localImage,c.name,'category-card__image')}<div class="category-card__body"><h3>${e(c.name)}</h3>${icon('arrow','icon--sm category-card__arrow')}</div></a>`).join(''));
+  if (changed.includes('products') || changed.includes('brands')) {
+    patchArea(document.querySelector('[data-home-featured]'), () => getCatalog().products.slice(0,6).map(productCard).join(''));
+    patchArea(document.querySelector('[data-home-products]'), () => {
+      const tab = document.querySelector('[data-home-tab][aria-selected="true"]')?.dataset.homeTab || 'new';
+      const sorted = [...getCatalog().products].sort(tab==='new' ? (a,b)=>new Date(b.createdAt)-new Date(a.createdAt) : (a,b)=>a.id-b.id);
+      return sorted.slice(0,6).map(productCard).join('');
+    });
+  }
+  if (changed.includes('brands')) patchArea(document.querySelector('[data-home-brands]'), brands.map(b=>`<a href="products.html?brand=${encodeURIComponent(b.slug)}" dir="ltr">${e(b.name)}</a>`).join(''));
+  if (changed.includes('posts')) patchArea(document.querySelector('[data-home-posts]'), posts.slice(0,3).map(articleCard).join(''));
+}
+function refreshProductDetails() {
+  const product = selectedProduct();
+  const detail = document.querySelector('.product-detail');
+  if (!product) {
+    if (detail) {
+      document.querySelectorAll('[data-add-product]').forEach(button => { button.disabled = true; });
+      let note = detail.querySelector('[data-product-unavailable]');
+      if (!note) { note=document.createElement('p'); note.dataset.productUnavailable=''; note.className='checkout-login-note'; detail.querySelector('.product-info')?.prepend(note); }
+      note.textContent='این محصول دیگر در کاتالوگ فروشگاه موجود نیست.';
+    }
+    return;
+  }
+  if (!detail) { renderProduct(); return; }
+  detail.querySelector('[data-product-unavailable]')?.remove();
+  detail.querySelector('.product-info__brand').textContent = getBrandName(product.brand);
+  detail.querySelector('.product-info h1').textContent = product.name;
+  detail.querySelector('.product-info__meta').innerHTML = `<span class="rating">${icon('star','rating__star')} ${fa(product.rating)} <span>(${fa(product.reviewsCount)} نظر)</span></span><span>کد محصول: ${fa(product.id+1000)}</span>`;
+  detail.querySelector('.product-info__price').innerHTML = `<strong>${fa(product.price)} <small>تومان</small></strong>${product.oldPrice?`<del>${fa(product.oldPrice)}</del><span class="badge badge--discount">٪${fa(product.discountPercent)} تخفیف</span>`:''}`;
+  const mobilePrice = document.querySelector('.mobile-add span');
+  if (mobilePrice) mobilePrice.innerHTML = `<strong>${fa(product.price)}</strong> <small>تومان</small>`;
+  patchArea(document.querySelector('[data-product-colors]'), () => product.colors.map(c=>`<button class="color-chip ${c.name===productSelection.color?'is-selected':''}" type="button" data-color="${e(c.name)}" data-product-color="${e(c.name)}" aria-label="رنگ ${e(c.name)}" aria-pressed="${c.name===productSelection.color}" ${product.sizes.some(size=>available(product,c.name,size))?'':'disabled'}></button>`).join(''));
+  patchArea(document.querySelector('[data-product-sizes]'), () => productSizes(product));
+  const variant=product.variants?.find(v=>v.color===productSelection.color && v.size===productSelection.size);
+  if (variant?.stock > 0) productSelection.quantity=Math.min(productSelection.quantity,variant.stock);
+  const quantity=document.querySelector('[data-product-quantity-value]'); if(quantity) quantity.textContent=fa(productSelection.quantity);
+  document.querySelectorAll('[data-add-product]').forEach(button => { button.disabled = !available(product,productSelection.color,productSelection.size); });
+  const index=Math.min(productSelection.gallery,Math.max(0,product.images.length-1));
+  productSelection.gallery=index;
+  patchArea(document.querySelector('[data-gallery-main]'), image(product.images[index],product.localImages?.[index],`${product.name}، تصویر ${fa(index+1)}`,'','loading="eager" fetchpriority="high"'));
+  patchArea(document.querySelector('.gallery__thumbs'), () => product.images.map((url,i)=>`<button class="gallery__thumb ${i===productSelection.gallery?'is-selected':''}" type="button" data-gallery="${i}" aria-label="تصویر ${fa(i+1)} محصول" aria-pressed="${i===productSelection.gallery}">${image(url,product.localImages?.[i],`${product.name}، تصویر ${fa(i+1)}`)}</button>`).join(''));
+  if (productSelection.tab !== 'reviews') patchArea(document.querySelector('[data-product-panel]'), productPanel(product));
+  else if (store.getUser() && document.querySelector('.review-login')) patchArea(document.querySelector('[data-product-panel]'), productReviews());
+  addJsonLd(product);
+}
+function refreshReviews() {
+  const product=selectedProduct();
+  if (!product || !isOnline()) return;
+  getReviews(product.id).then(reviews => {
+    if (String(selectedProduct()?.id) !== String(product.id)) return;
+    productSelection.reviews=reviews;
+    if (productSelection.tab==='reviews') {
+      if (store.getUser() && document.querySelector('.review-login')) patchArea(document.querySelector('[data-product-panel]'), productReviews());
+      else patchArea(document.querySelector('[data-review-list]'), reviewList());
+    }
+  }).catch(error => console.warn('Styleland reviews:',error.message));
+}
+function refreshCatalogViews(changed) {
+  refreshLiveSearch();
+  if (page==='home') refreshHome(changed);
+  if (page==='products') refreshFilters();
+  if (page==='product') { refreshProductDetails(); if (changed.includes('products')) refreshReviews(); }
+  if (page==='cart') renderCartPreservingInput();
+  if (page==='checkout') refreshCheckout();
+  if (page==='wishlist') scheduleMainRefresh('wishlist',renderWishlist);
+  if (page==='brands' && changed.includes('brands')) scheduleMainRefresh('brands',renderBrands);
+  if (page==='blog' && changed.includes('posts')) {
+    if (new URLSearchParams(location.search).has('slug')) scheduleMainRefresh('blog',renderBlog);
+    else {
+      const categories=['همه',...new Set(getCatalog().posts.map(p=>p.category))];
+      patchArea(document.querySelector('.blog-filters .tabs'), categories.map(c=>`<button type="button" class="tab" role="tab" data-blog-category="${e(c)}" aria-selected="${blogCategory===c}">${e(c)}</button>`).join(''));
+      renderBlogResults();
+    }
+  }
+  updateHeaderState();
+}
+function updateAuthAvailability() {
+  const status=document.querySelector('[data-auth-status]');
+  const button=document.querySelector('[data-auth-form] button[type="submit"]');
+  if (!status || !button) return;
+  const phase=getBackendPhase();
+  status.textContent=phase==='connecting'?'در حال برقراری اتصال به حساب کاربری هستیم؛ می‌توانید اطلاعاتتان را وارد کنید.':!isOnline()?'اتصال به حساب کاربری در حال حاضر برقرار نیست. سبد و علاقه‌مندی‌ها روی همین دستگاه می‌مانند.':'';
+  status.hidden=!status.textContent;
+  button.disabled=phase==='connecting'||!isOnline();
+}
+
 function watchBreadcrumbs() {
   let previous = '';
   const update = () => {
@@ -308,16 +490,44 @@ function watchBreadcrumbs() {
   new MutationObserver(update).observe(main,{childList:true,subtree:true});update();
 }
 async function start() {
-  bindUI(); bindPageEvents(); watchBreadcrumbs(); renderHeader(); renderFooter();
-  const online=await initBackend();
+  bindUI(); bindPageEvents(); watchBreadcrumbs();
+  window.addEventListener('styleland:catalog', event => refreshCatalogViews(event.detail || []));
+  document.addEventListener('focusout', () => setTimeout(flushBackgroundUpdates,0));
+  window.addEventListener('styleland:overlayclosed', () => setTimeout(flushBackgroundUpdates,0));
+  // Paint the local storefront immediately; network, account restoration and
+  // server data continue in parallel instead of blocking the first screen.
+  const backend = initBackend();
+  renderHeader(); renderFooter();
+  Promise.resolve(renderPage()).catch(error => console.error('Styleland page:',error));
+  observeMotion();
+  const online=await backend;
   if(online) {
     try {const session=await getSession();if(session?.user)await store.setUser(session.user);}
     catch {toast('دریافت اطلاعات حساب انجام نشد.','error');}
     getClient()?.auth.onAuthStateChange((event,session)=>{
       if(!['SIGNED_IN','SIGNED_OUT','INITIAL_SESSION'].includes(event))return;
-      setTimeout(async()=>{await store.setUser(session?.user||null);updateHeaderState();if(page==='account'&&!document.querySelector('[data-auth-form] button:disabled'))await loadAccount();},0);
+      setTimeout(async()=>{
+        const previous=store.getUser()?.id || null;
+        await store.setUser(session?.user||null);
+        updateHeaderState();
+        const current=store.getUser()?.id || null;
+        if(page==='account' && previous!==current && getBackendPhase()!=='connecting' && !document.querySelector('[data-auth-form] button:disabled')) await loadAccount();
+        if(page==='checkout') refreshCheckout();
+        if(page==='product' && previous!==current) { refreshProductDetails(); refreshReviews(); }
+      },0);
     });
   } else toast('اتصال به فروشگاه برقرار نشد؛ داده‌های نمایشی محلی نمایش داده می‌شوند.');
-  renderHeader(); renderPage();
+  finishBackendInitialization();
+  updateHeaderState();
+  if(page==='account') { if(store.getUser()) await loadAccount(); else updateAuthAvailability(); }
+  if(page==='checkout') refreshCheckout();
+  if(page==='product') { refreshProductDetails(); refreshReviews(); }
 }
-start().catch(error=>{console.error('Styleland initialization:',error);main.innerHTML=`<div class="container">${emptyState('بارگذاری صفحه انجام نشد','لطفاً صفحه را دوباره باز کنید.','بازگشت به خانه','index.html','refresh')}</div>`;});
+start().catch(error=>{
+  console.error('Styleland initialization:',error);
+  finishBackendInitialization();
+  if(main.querySelector('.skeleton')) main.innerHTML=`<div class="container">${emptyState('بارگذاری صفحه انجام نشد','لطفاً صفحه را دوباره باز کنید.','بازگشت به خانه','index.html','refresh')}</div>`;
+  else toast('اتصال یا دریافت اطلاعات کامل نشد؛ لطفاً دوباره تلاش کنید.','error');
+  if(page==='account') updateAuthAvailability();
+  if(page==='checkout') refreshCheckout();
+});

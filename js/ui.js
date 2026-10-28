@@ -37,9 +37,14 @@ export const price = value => `${fa(value)} <span class="product-card__currency"
 export function latinDigits(value = '') { return String(value).replace(/[۰-۹]/g, n => '۰۱۲۳۴۵۶۷۸۹'.indexOf(n)).replace(/[٠-٩]/g, n => '٠١٢٣٤٥٦٧٨٩'.indexOf(n)); }
 export const toFaDate = value => { try { return new Intl.DateTimeFormat('fa-IR', { year:'numeric', month:'long', day:'numeric' }).format(new Date(value)); } catch { return ''; } };
 export function image(src, fallback, alt, className = '', options = '') {
-  const safe = /^(https:\/\/images\.unsplash\.com\/|assets\/)/.test(src || '') ? src : (fallback || 'assets/hero-fashion.jpg');
-  const local = /^assets\//.test(fallback || '') ? fallback : 'assets/hero-fashion.jpg';
-  return `<img class="${escapeHTML(className)}" src="${escapeHTML(safe)}" data-fallback="${escapeHTML(local)}" alt="${escapeHTML(alt)}" width="600" height="750" loading="lazy" ${options}>`;
+  // Packaged images load immediately, without waiting for a third-party image host.
+  // Keep the original JPEG and the Unsplash URL as fallbacks when available.
+  const remote = /^https:\/\/images\.unsplash\.com\//.test(src || '') ? src : '';
+  const local = /^assets\//.test(fallback || '') ? fallback : /^assets\//.test(src || '') ? src : '';
+  const optimized = local ? local.replace(/\.jpe?g$/i, '.webp') : '';
+  const first = optimized || remote || 'assets/hero-fashion.webp';
+  const next = local && local !== first ? local : '';
+  return `<img class="${escapeHTML(className)}" src="${escapeHTML(first)}" ${next ? `data-fallback="${escapeHTML(next)}"` : ''} ${remote && remote !== first ? `data-remote="${escapeHTML(remote)}"` : ''} alt="${escapeHTML(alt)}" width="600" height="750" ${/\bloading=/.test(options) ? '' : 'loading="lazy"'} decoding="async" ${options}>`;
 }
 export function toast(message, kind = '') {
   const region = document.getElementById('toast-region');
@@ -76,7 +81,7 @@ export function articleCard(post) {
 export function emptyState(title, description, action = 'محصولات را ببینید', href = 'products.html', iconName = 'bag') {
   return `<div class="empty"><div class="empty__icon">${icon(iconName,'icon--lg')}</div><h2>${escapeHTML(title)}</h2><p>${escapeHTML(description)}</p><a class="btn btn--primary" href="${escapeHTML(href)}">${escapeHTML(action)} ${icon('arrow','icon--sm')}</a></div>`;
 }
-function logo() { return `<a href="index.html" class="logo" aria-label="استایلند، صفحه اصلی"><span class="logo__mark">${icon('spark')}</span><span class="logo__name">استایلند<span class="logo__latin">STYLELAND</span></span></a>`; }
+function logo() { return `<a href="index.html" class="logo" aria-label="استایلند، صفحه اصلی"><span class="logo__mark"><img src="assets/logo-mark.svg" width="40" height="40" alt="" aria-hidden="true"></span><span class="logo__name">استایلند<span class="logo__latin">STYLELAND</span></span></a>`; }
 function mega(gender) {
   const label = gender === 'women' ? 'زنانه' : 'مردانه';
   return `<div class="mega"><div><strong>پوشاک ${label}</strong><a href="products.html?gender=${gender}">همه محصولات ${label}</a><a href="products.html?gender=${gender}&amp;category=tops">تیشرت و پیراهن</a><a href="products.html?gender=${gender}&amp;category=outerwear">کاپشن و پالتو</a></div><div><strong>کامل‌کننده استایل</strong><a href="products.html?gender=${gender}&amp;category=shoes">کفش و کتانی</a><a href="products.html?gender=${gender}&amp;category=bags">کیف</a><a href="products.html?gender=${gender}&amp;category=accessories">اکسسوری</a></div>${image('assets/editorial/editorial-couple.jpg','assets/editorial/editorial-couple.jpg','کالکشن استایلند','')}</div>`;
@@ -102,7 +107,11 @@ export function renderFooter() {
   <div class="footer__col"><h3>راهنمای خرید</h3><a href="products.html">همه محصولات</a><a href="blog.html?slug=right-sneakers">راهنمای انتخاب</a><a href="cart.html">سبد خرید</a><a href="checkout.html">مراحل ثبت سفارش</a></div>
   <div class="footer__col"><h3>خدمات مشتریان</h3><a href="account.html">حساب کاربری</a><a href="wishlist.html">علاقه‌مندی‌ها</a><a href="blog.html">مجله استایلند</a><a href="brands.html">برندها</a></div>
   <div class="footer__col"><h3>تماس با ما</h3><p>پشتیبانی نمایشی فروشگاه</p><a href="mailto:hello@styleland.example" class="ltr">hello@styleland.example</a><p>شنبه تا پنجشنبه، ۹ تا ۱۸</p><p>همیشه کنار استایل شما</p></div></div>
-  <div class="footer__bottom"><span>© ${fa(new Date().getFullYear())} استایلند؛ همه حقوق محفوظ است.</span><div class="footer__trust"><span>پرداخت آزمایشی</span><span>ارسال نمونه</span><span>تجربه خرید امن</span></div></div></div>`;
+  <div class="footer__licenses" aria-label="جایگاه نمادهای نمایشی"><div class="footer__licenses-heading"><h3>جایگاه مجوزها</h3><p>دو جایگاه نمونه برای نمادهای فروشگاه</p></div><div class="footer__license-slots">
+    <button class="license-placeholder" type="button" data-license-info="اینماد" aria-label="جایگاه اینماد، نمونه نمایشی و بدون اعتبار">${icon('shield')}<span><strong>اینماد</strong><small>نمونه نمایشی · بدون اعتبار</small></span>${icon('arrow','icon--sm')}</button>
+    <button class="license-placeholder" type="button" data-license-info="مجوز فروشگاه" aria-label="جایگاه مجوز فروشگاه، نمونه نمایشی و بدون اعتبار">${icon('shield')}<span><strong>مجوز فروشگاه</strong><small>نمونه نمایشی · بدون اعتبار</small></span>${icon('arrow','icon--sm')}</button>
+  </div></div>
+  <div class="footer__bottom"><span>© ${fa(new Date().getFullYear())} استایلند؛ همه حقوق محفوظ است.</span><div class="footer__trust"><span>پرداخت آزمایشی</span><span>ارسال نمونه</span><span>فروشگاه نمایشی</span></div></div></div>`;
 }
 export function updateHeaderState() {
   document.querySelectorAll('[data-cart-count]').forEach(el => { const count = store.cartCount(); el.textContent = fa(count); el.hidden = !count; });
@@ -122,6 +131,7 @@ export function closeOverlay() {
   document.body.classList.remove('is-locked');
   if (previousFocus?.isConnected) previousFocus.focus();
   previousFocus = null;
+  window.dispatchEvent(new CustomEvent('styleland:overlayclosed'));
 }
 export function showOverlay(content, overlayClass = '') {
   const root = document.getElementById('overlay-root');
@@ -187,11 +197,22 @@ function renderSearch(input) {
   results.innerHTML = matches.length ? `${matches.map(p => `<a class="search-results__item" href="product.html?id=${Number(p.id)}">${image(p.images[0],p.localImages?.[0],p.name)}<span><strong>${highlight(p.name)}</strong><small>${fa(p.price)} تومان</small></span></a>`).join('')}<a class="search-results__all" href="products.html?q=${encodeURIComponent(input.value.trim())}">مشاهده همه نتایج ${icon('arrow','icon--sm')}</a>` : `<p class="search-results__all">محصولی پیدا نشد.</p><a class="search-results__all" href="products.html?q=${encodeURIComponent(input.value.trim())}">مشاهده همه نتایج</a>`;
   results.hidden = false;
 }
+export function refreshLiveSearch() {
+  document.querySelectorAll('[data-search-input]').forEach(input => {
+    const results = input.closest('.header__search, .drawer__body')?.querySelector('[data-search-results]');
+    if (input.value.trim() && !results?.contains(document.activeElement)) renderSearch(input);
+  });
+}
 let searchTimer;
 export function bindUI() {
   document.addEventListener('error', event => {
     const img = event.target;
-    if (img instanceof HTMLImageElement && img.dataset.fallback && img.getAttribute('src') !== img.dataset.fallback) img.src = img.dataset.fallback;
+    if (!(img instanceof HTMLImageElement)) return;
+    const next = img.dataset.fallback || img.dataset.remote;
+    if (img.dataset.fallback) delete img.dataset.fallback;
+    else delete img.dataset.remote;
+    if (next && img.getAttribute('src') !== next) img.src = next;
+    else if (img.getAttribute('src') !== 'assets/hero-fashion.jpg') img.src = 'assets/hero-fashion.jpg';
   }, true);
   document.addEventListener('input', event => {
     if (!event.target.matches('[data-search-input]')) return;
@@ -216,6 +237,11 @@ export function bindUI() {
     if (target.matches('[data-open-cart]')) return openCartDrawer();
     if (target.matches('[data-open-menu]')) return openMenu();
     if (target.matches('[data-open-search]')) return openSearch();
+    if (target.matches('[data-license-info]')) {
+      const name = escapeHTML(target.dataset.licenseInfo);
+      showOverlay(modal('جایگاه مجوز نمایشی', `<p class="license-info">«${name}» در این نسخه فقط یک جایگاه نمایشی است؛ هیچ مجوز یا تأییدیه‌ای صادر یا تأیید نشده است. پس از دریافت مجوز واقعی، نشانی و نشان رسمی آن باید جایگزین شود.</p><button class="btn btn--primary" type="button" data-close-overlay>متوجه شدم</button>`));
+      return;
+    }
     if (target.matches('[data-wishlist]')) { const added = store.toggleWishlist(target.dataset.wishlist); toast(added ? 'به علاقه‌مندی‌ها اضافه شد.' : 'از علاقه‌مندی‌ها حذف شد.'); return; }
     if (target.matches('[data-quick-add],[data-quick-view]')) return openQuickView(target.dataset.quickAdd || target.dataset.quickView);
     if (target.matches('[data-quantity]')) {

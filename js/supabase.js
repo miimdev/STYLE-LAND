@@ -3,6 +3,8 @@ import * as fallback from './data.js';
 
 let client = null;
 let online = false;
+// Distinguish an unfinished connection/session restore from a confirmed outage.
+let backendPhase = 'connecting';
 let catalog = { products: fallback.products, categories: fallback.categories, brands: fallback.brands, posts: fallback.posts };
 let initPromise;
 
@@ -13,24 +15,30 @@ const timedFetch = (input, options = {}) => {
   return fetch(input, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
 };
 
-function loadLibrary() {
-  if (window.supabase?.createClient) return Promise.resolve();
+function loadScript(src, timeout) {
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = SUPABASE_CDN;
+    script.src = src;
     script.async = true;
     let settled = false;
-    const finish = (error) => {
+    const finish = error => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       if (error) { script.remove(); reject(error); } else resolve();
     };
-    const timer = setTimeout(() => finish(new Error('CDN_TIMEOUT')), 3500);
-    script.onload = () => finish();
-    script.onerror = () => finish(new Error('CDN_UNAVAILABLE'));
+    const timer = setTimeout(() => finish(new Error('SCRIPT_TIMEOUT')), timeout);
+    script.onload = () => window.supabase?.createClient ? finish() : finish(new Error('INVALID_LIBRARY'));
+    script.onerror = () => finish(new Error('SCRIPT_UNAVAILABLE'));
     document.head.append(script);
   });
+}
+async function loadLibrary() {
+  if (window.supabase?.createClient) return;
+  // The pinned CDN remains the primary source. If it is blocked or slow,
+  // load the identical local copy so account and ordering can still work.
+  try { await loadScript(SUPABASE_CDN, 1500); }
+  catch { await loadScript('assets/vendor/supabase-2.118.0.min.js', 3000); }
 }
 
 export async function initBackend() {
@@ -40,31 +48,43 @@ export async function initBackend() {
       await loadLibrary();
       client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
         global: { fetch: timedFetch },
+        db: { retry: false },
         auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
       });
-      const results = await Promise.all([
-        client.from('products').select('*, product_variants(id,color,color_hex,size,stock)').order('id'),
+      // Non-critical collections do not hold up account and checkout readiness.
+      // Each collection can fall back independently if only one request fails.
+      const productsRequest = Promise.resolve(client.from('products').select('*, product_variants(id,color,color_hex,size,stock)').order('id'));
+      Promise.allSettled([
         client.from('categories').select('*'),
         client.from('brands').select('*'),
         client.from('blog_posts').select('*').eq('published', true).order('published_at', { ascending: false })
-      ]);
-      if (results.some(result => result.error)) throw results.find(result => result.error).error;
-      if (!results[0].data?.length) throw new Error('EMPTY_CATALOG');
-      const [products, categories, brands, posts] = results.map(r => r.data);
+      ]).then(results => {
+        const changed = [];
+        const value = index => results[index].status === 'fulfilled' && !results[index].value.error ? results[index].value.data : null;
+        const categories = value(0), brands = value(1), posts = value(2);
+        if (categories) {
+          catalog.categories = categories.map(c => ({ ...c, localImage: c.local_image }));
+          catalog.categories.sort((a, b) => fallback.categories.findIndex(x => x.slug === a.slug) - fallback.categories.findIndex(x => x.slug === b.slug));
+          changed.push('categories');
+        }
+        if (brands) { catalog.brands = brands; changed.push('brands'); }
+        if (posts) {
+          catalog.posts = posts.map(p => ({ ...p, localImage: p.local_image, readTime: p.read_time, publishedAt: p.published_at }));
+          changed.push('posts');
+        }
+        if (changed.length) window.dispatchEvent(new CustomEvent('styleland:catalog', { detail: changed }));
+      }).catch(error => console.warn('Styleland: optional catalog data', error.message));
+      const result = await productsRequest;
+      if (result.error) throw result.error;
+      if (!result.data?.length) throw new Error('EMPTY_CATALOG');
       // نگاشت نام فیلدهای Postgres به قرارداد یکسان در همهٔ نماها.
-      catalog = {
-        products: products.map(p => ({
-          ...p, oldPrice: p.old_price, discountPercent: p.discount_percent, localImages: p.local_images,
-          reviewsCount: p.reviews_count, createdAt: p.created_at,
-          variants: (p.product_variants || []).map(v => ({ ...v, colorHex: v.color_hex }))
-        })),
-        categories: categories.map(c => ({ ...c, localImage: c.local_image })),
-        brands,
-        posts: posts.map(p => ({ ...p, localImage: p.local_image, readTime: p.read_time, publishedAt: p.published_at }))
-      };
-      // ثبات ترتیب دسته‌بندی مستقل از ترتیب برگردانده‌شده از پایگاه داده است.
-      catalog.categories.sort((a, b) => fallback.categories.findIndex(x => x.slug === a.slug) - fallback.categories.findIndex(x => x.slug === b.slug));
+      catalog.products = result.data.map(p => ({
+        ...p, oldPrice: p.old_price, discountPercent: p.discount_percent, localImages: p.local_images,
+        reviewsCount: p.reviews_count, createdAt: p.created_at,
+        variants: (p.product_variants || []).map(v => ({ ...v, colorHex: v.color_hex }))
+      }));
       online = true;
+      window.dispatchEvent(new CustomEvent('styleland:catalog', { detail: ['products'] }));
       return true;
     } catch (error) {
       console.warn('Styleland: using local catalog', error.message);
@@ -77,6 +97,9 @@ export async function initBackend() {
 
 export const getClient = () => client;
 export const isOnline = () => online;
+export const getBackendPhase = () => backendPhase;
+// The app calls this after restoring the session and merging the cart as well.
+export function finishBackendInitialization() { backendPhase = online ? 'online' : 'offline'; }
 export const getCatalog = () => catalog;
 export const getProduct = id => catalog.products.find(p => String(p.id) === String(id));
 export const getBrandName = slug => catalog.brands.find(b => b.slug === slug)?.name || slug;
@@ -126,12 +149,14 @@ export async function addReview(productId, user, displayName, rating, comment) {
 }
 export async function checkCoupon(code) {
   const normalized = code.trim().toUpperCase();
+  if (backendPhase === 'connecting') await initBackend();
   if (!client || !online) return normalized === 'STYLE10' ? { code: normalized, discount_percent: 10, offline: true } : null;
   const { data, error } = await client.from('coupons').select('code,discount_percent').eq('code', normalized).maybeSingle();
   if (error) throw error;
   return data;
 }
 export async function subscribe(email) {
+  if (backendPhase === 'connecting') await initBackend();
   if (!client || !online) throw new Error('OFFLINE');
   const { error } = await client.from('newsletter_subscribers').insert({ email: email.trim().toLowerCase() });
   if (error) throw error;

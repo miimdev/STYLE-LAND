@@ -7,6 +7,7 @@ const sortLabels = { popular:'پرفروش‌ترین', newest:'جدیدترین
 let state;
 let visible = 12;
 let bound = false;
+let refreshPending = false;
 const array = value => value ? value.split(',').filter(Boolean) : [];
 function readState() {
   const params = new URLSearchParams(location.search);
@@ -68,7 +69,17 @@ function render() {
 function openFilters() {
   showOverlay(drawer('فیلتر محصولات', `<div class="filters filters--sheet">${filterPanel()}</div>`, `<button type="button" class="btn btn--primary btn--block" data-close-overlay>نمایش ${fa(filtered().length)} محصول</button>`), 'overlay--filter');
 }
-function update(reopen = false) { visible = 12; writeState(); render(); if (reopen) openFilters(); }
+function update(reopen = false) { visible = 12; writeState(); refreshPending = false; render(); if (reopen) openFilters(); }
+// Keep query/filter state and avoid removing a focused control or open drawer
+// when the server catalog arrives after the first local render.
+export function refreshFilters() {
+  if (!state || document.body.dataset.page !== 'products') return;
+  const main = document.getElementById('main-content');
+  const active = document.activeElement;
+  if (document.querySelector('[data-overlay]') || (active !== main && main.contains(active))) { refreshPending = true; return; }
+  refreshPending = false;
+  render();
+}
 export function initFilters() {
   state = readState(); visible = 12; render();
   if (bound) return;
@@ -118,5 +129,7 @@ export function initFilters() {
       update();
     }
   });
+  document.addEventListener('focusout', () => { if (refreshPending) setTimeout(refreshFilters, 0); });
+  window.addEventListener('styleland:overlayclosed', () => { if (refreshPending) setTimeout(refreshFilters, 0); });
   window.addEventListener('popstate', () => { if (document.body.dataset.page === 'products') { state = readState(); visible = 12; render(); closeOverlay(); } });
 }

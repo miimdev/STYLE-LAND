@@ -1,3 +1,4 @@
+@font-face{font-family:'Style';src:url('../fonts/style.ttf') format('truetype');font-weight:100 900;font-style:normal;font-display:swap}
 @font-face{font-family:'Vazirmatn Local';src:url('../assets/fonts/vazirmatn-arabic-400-normal.woff2') format('woff2');font-weight:400;font-display:swap;unicode-range:U+0600-08FF,U+FB50-FDFF,U+FE70-FEFF,U+200C-200F}
 @font-face{font-family:'Vazirmatn Local';src:url('../assets/fonts/vazirmatn-latin-400-normal.woff2') format('woff2');font-weight:400;font-display:swap;unicode-range:U+0000-00FF,U+2000-206F,U+20AC,U+2122}
 @font-face{font-family:'Vazirmatn Local';src:url('../assets/fonts/vazirmatn-arabic-500-normal.woff2') format('woff2');font-weight:500;font-display:swap;unicode-range:U+0600-08FF,U+FB50-FDFF,U+FE70-FEFF,U+200C-200F}
@@ -6,7 +7,7 @@
 @font-face{font-family:'Vazirmatn Local';src:url('../assets/fonts/vazirmatn-latin-700-normal.woff2') format('woff2');font-weight:700;font-display:swap;unicode-range:U+0000-00FF,U+2000-206F,U+20AC,U+2122}
 *,*::before,*::after{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:150px}
-body{margin:0;background:var(--bg);color:var(--text);font-family:'Vazirmatn','Vazirmatn Local',Tahoma,sans-serif;font-size:15px;line-height:1.9;-webkit-font-smoothing:antialiased}
+body{margin:0;background:var(--bg);color:var(--text);font-family:'Style','Vazirmatn Local',Tahoma,sans-serif;font-size:15px;line-height:1.9;-webkit-font-smoothing:antialiased}
 body.is-locked{overflow:hidden}
 a{color:inherit;text-decoration:none}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -44,4 +45,4 @@ legend{padding:0}
 .no-scrollbar::-webkit-scrollbar{display:none}
 @media(min-width:600px){.container{width:min(100% - 64px,var(--container))}}
 @media(max-width:599px){h1{font-size:28px;line-height:1.38}.section{padding-block-start:48px}.section__title{font-size:21px}.section__description{font-size:12px}.section__heading{margin-block-end:18px}}
-@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto;animation-duration:.01ms;animation-iteration-count:1;transition-duration:.01ms}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
