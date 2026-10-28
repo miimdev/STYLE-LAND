@@ -1,0 +1,15 @@
+# Credentials and local overrides
+.env
+.env.*
+!.env.example
+*.local
+# OS, editor and temporary files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+node_modules/
+coverage/
+playwright-report/
+test-results/
+image-search/
